@@ -14,10 +14,12 @@ export ARCH VERSION
 export APPDIR="$WORK/AppDir"
 export OUTPATH="${OUTPATH:-$ROOT/dist}"
 export OUTNAME="iBR-$VERSION-$ARCH.AppImage"
-export ICON="$ROOT/ibr/data/com.techxero.ibr.svg"
+export ICON="$ROOT/ibr/data/icons/hicolor/scalable/apps/com.techxero.ibr.svg"
 export DESKTOP="$ROOT/data/com.techxero.ibr.desktop"
 export DEPLOY_PYTHON=1
 export DEPLOY_GTK=1
+export DEPLOY_GLYCIN=1
+export DEPLOY_LIBHEIF=1
 export GTK_FIX_NONSENSE=1
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
 	export UPINFO="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|*$ARCH.AppImage.zsync"

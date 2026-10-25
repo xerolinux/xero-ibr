@@ -29,6 +29,8 @@ class DeviceInfo:
     total_bytes: int | None
     available_bytes: int | None
     will_encrypt: bool | None
+    system_bytes: int | None = None
+    build: str | None = None
 
     @property
     def spec(self) -> ModelSpec:
@@ -60,6 +62,7 @@ def parse_device_info(info: bytes, battery: bytes | None, disk: bytes | None,
     charging = power.get("BatteryIsCharging")
     total = storage.get("TotalDiskCapacity")
     available = storage.get("TotalDataAvailable")
+    system = storage.get("TotalSystemCapacity")
     will_encrypt = backup_domain.get("WillEncrypt")
     return DeviceInfo(
         udid=str(base.get("UniqueDeviceID", "")),
@@ -75,4 +78,6 @@ def parse_device_info(info: bytes, battery: bytes | None, disk: bytes | None,
         total_bytes=total if isinstance(total, int) else None,
         available_bytes=available if isinstance(available, int) else None,
         will_encrypt=will_encrypt if isinstance(will_encrypt, bool) else None,
+        system_bytes=system if isinstance(system, int) else None,
+        build=str(base["BuildVersion"]) if base.get("BuildVersion") else None,
     )

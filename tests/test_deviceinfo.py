@@ -7,6 +7,7 @@ INFO = plistlib.dumps({
     "DeviceName": "My iPhone",
     "ProductType": "iPhone17,1",
     "ProductVersion": "26.0.1",
+    "BuildVersion": "23A355",
     "SerialNumber": "F2LXXXXXXQ7",
     "ModelNumber": "MYNF3",
     "RegionInfo": "B/A",
@@ -18,6 +19,7 @@ DISK = plistlib.dumps({
     "TotalDiskCapacity": 256_000_000_000,
     "TotalDataCapacity": 245_000_000_000,
     "TotalDataAvailable": 108_000_000_000,
+    "TotalSystemCapacity": 8_000_000_000,
 })
 BACKUP = plistlib.dumps({"WillEncrypt": True})
 
@@ -28,6 +30,7 @@ def test_full_parse():
     assert info.name == "My iPhone"
     assert info.product_type == "iPhone17,1"
     assert info.os_version == "26.0.1"
+    assert info.build == "23A355"
     assert info.model_number == "MYNF3B/A"
     assert info.spec.name == "iPhone 16 Pro"
     assert info.finish == info.spec.finish
@@ -35,6 +38,7 @@ def test_full_parse():
     assert info.charging is True
     assert info.total_bytes == 256_000_000_000
     assert info.used_bytes == 148_000_000_000
+    assert info.system_bytes == 8_000_000_000
     assert info.will_encrypt is True
 
 

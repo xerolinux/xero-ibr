@@ -3,7 +3,8 @@ from pathlib import Path
 
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
-from ..core.afc import AfcError, RemoteEntry, SharingApp, child_path, icon_for, media_kind, parent_path
+from ..core.afc import (AfcError, RemoteEntry, SharingApp, breadcrumbs, child_path, icon_for, location_root,
+                        media_kind, parent_path)
 from ..core.fmt import format_date, format_size
 from ..core.settings import xdg_dir
 from ..services.afc import Afc, list_sharing_apps
@@ -80,6 +81,7 @@ class FilesView(Gtk.Box):
         self.afc: Afc | None = None
         self._udid = None
         self._path = "/"
+        self._root = "/"
         self._busy = False
 
         locations = vbox(8, "sidebar", "files-locations")
@@ -243,7 +245,8 @@ class FilesView(Gtk.Box):
         active.add_css_class("active")
         self.afc = Afc(self._udid, app.bundle_id if app else None)
         self._location_name = app.name if app else MEDIA
-        self.open_path("/")
+        self._root = location_root(app.bundle_id if app else None)
+        self.open_path(self._root)
 
     def open_path(self, path: str):
         self._path = path
@@ -259,6 +262,7 @@ class FilesView(Gtk.Box):
                 self._empty.set_label(f"Cannot open this folder: {error}")
                 self._set_status("")
                 return
+            entries = [entry for entry in entries if not entry.name.startswith(".")]
             for entry in entries:
                 self._store.append(EntryItem(entry, child_path(path, entry.name)))
             self._empty.set_label("" if entries else "Empty folder. Drop files here to copy them to the device.")
@@ -269,10 +273,8 @@ class FilesView(Gtk.Box):
     def _render_crumbs(self):
         clear(self._crumbs)
         self._title.set_label(self._location_name)
-        self._up.set_sensitive(self._path != "/")
-        parts = [p for p in self._path.split("/") if p]
-        for index, part in enumerate([self._location_name, *parts]):
-            target = "/" + "/".join(parts[:index])
+        self._up.set_sensitive(self._path != self._root)
+        for index, (part, target) in enumerate(breadcrumbs(self._path, self._root, self._location_name)):
             crumb = button(part, None, "flat", "crumb")
             crumb.connect("clicked", lambda _b, t=target: self.open_path(t))
             if index:
@@ -354,7 +356,7 @@ class FilesView(Gtk.Box):
         self._progress.set_visible(False)
         for widget in self._actions:
             widget.set_sensitive(True)
-        self._up.set_sensitive(self._path != "/")
+        self._up.set_sensitive(self._path != self._root)
         self._set_status(f"Failed: {error}" if error else "Done")
 
     def _upload(self, files: list[Path]):

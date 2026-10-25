@@ -12,7 +12,9 @@ pacman -Syu --noconfirm --needed \
 	automake \
 	curl \
 	git \
+	glycin \
 	gtk4 \
+	libheif \
 	libimobiledevice \
 	libimobiledevice-glue \
 	libsecret \

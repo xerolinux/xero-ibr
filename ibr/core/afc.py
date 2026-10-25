@@ -95,3 +95,18 @@ def icon_for(name: str, is_dir: bool) -> str:
 def media_kind(name: str, is_dir: bool) -> str | None:
     icon = icon_for(name, is_dir)
     return icon.split("-", 1)[0] if icon in _ICONS else None
+
+
+def location_root(app_id: str | None) -> str:
+    # House Arrest's VendDocuments opens the app sandbox; only its Documents folder is shared.
+    return "/Documents" if app_id else "/"
+
+
+def breadcrumbs(path: str, root: str, root_label: str) -> list[tuple[str, str]]:
+    crumbs = [(root_label, root)]
+    relative = path[len(root):] if path.startswith(root) else path
+    current = root.rstrip("/")
+    for part in (p for p in relative.split("/") if p):
+        current = f"{current}/{part}"
+        crumbs.append((part, current))
+    return crumbs

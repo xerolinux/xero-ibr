@@ -1,12 +1,11 @@
 import shlex
 import shutil
-from importlib.resources import files
 from pathlib import Path
 
 from gi.repository import Gio, GLib, Gtk
 
 from .. import __version__
-from ..constants import APP_NAME, LICENSE_NOTE, TAGLINE
+from ..constants import APP_ID, APP_NAME, LICENSE_NOTE, TAGLINE
 from ..core.backups import BackupEntry, dir_size, scan_backups
 from ..core.catalog import lookup
 from ..core.commands import backup_cmd, changepw_cmd, encryption_cmd
@@ -21,6 +20,7 @@ from ..services import keyring
 from ..services.devices import Device, DeviceMonitor
 from ..services.operation import Operation
 from ..services import updater
+from ..services.homescreen import fetch_home
 from ..services.runner import in_thread, missing_tools, run
 from .about_window import AboutWindow
 from .backups_window import BackupsWindow
@@ -84,6 +84,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._op_active = False
         self._quit_after = False
         self._copied: list[str] = []
+        self._homes: dict = {}
         self._missing = missing_tools()
 
         self._build_header()
@@ -146,7 +147,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _build_header(self):
         header = Gtk.HeaderBar()
         brand = hbox(8)
-        logo = Gtk.Image.new_from_file(str(files("ibr") / "data" / "com.techxero.ibr.svg"))
+        logo = Gtk.Image.new_from_icon_name(APP_ID)
         logo.set_pixel_size(22)
         brand.append(logo)
         title = label(APP_NAME, "app-title")
@@ -225,6 +226,19 @@ class MainWindow(Gtk.ApplicationWindow):
             in_thread(lambda path=entry.path: dir_size(path), done)
         return None
 
+    def home_of(self, udid: str):
+        if udid in self._homes:
+            return self._homes[udid]
+        self._homes[udid] = None
+
+        def fetched(home):
+            if udid in self.monitor.devices:
+                self._homes[udid] = home
+                self.refresh_ui()
+
+        in_thread(lambda: fetch_home(udid), fetched)
+        return None
+
     def reload_backups(self, then=None):
         root = Path(self.settings.backup_dir)
 
@@ -260,6 +274,9 @@ class MainWindow(Gtk.ApplicationWindow):
         for udid in list(self._auto_done):
             if udid not in connected:
                 self._auto_done.discard(udid)
+        for udid in list(self._homes):
+            if udid not in connected:
+                del self._homes[udid]
         if self.settings.auto_backup and not self._op_active:
             for udid, device in connected.items():
                 if device.state == "ready" and udid not in self._auto_done and is_supported(device.info.os_version):
@@ -373,7 +390,7 @@ class MainWindow(Gtk.ApplicationWindow):
         history = self.backups_for(device.udid)
         latest = history[0] if history else None
         self.device_view.update(device.info, latest, self.size_of(latest) if latest else None,
-                                self.settings.show_identifiers, bool(self.backups))
+                                self.settings.show_identifiers, bool(self.backups), self.home_of(device.udid))
         if not self._op_active:
             self.device_view.set_idle()
         self._stack.set_visible_child_name("files" if self._files_open else "device")

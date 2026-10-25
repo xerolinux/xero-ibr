@@ -465,3 +465,7 @@ window.ibr headerbar button.toggle:checked { background: var(--card); }
 window.ibr label > selection, window.ibr text > selection { background-color: rgba(86, 87, 245, 0.35); color: inherit; }
 window.ibr headerbar button.update { background: var(--success-bg); color: var(--success-fg); }
 window.ibr headerbar button.update:hover { background: #24503a; }
+window.ibr headerbar windowcontrols button,
+window.ibr headerbar windowcontrols button:backdrop { color: var(--fg2); opacity: 1; }
+window.ibr headerbar windowcontrols button image,
+window.ibr headerbar windowcontrols button:backdrop image { color: var(--fg2); opacity: 1; -gtk-icon-shadow: none; }

@@ -1,8 +1,14 @@
+import hashlib
+import shutil
+import subprocess
 from pathlib import Path
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from ..core.fmt import format_size
+from ..core.preview import converter_commands
+from ..core.settings import xdg_dir
+from ..services.runner import in_thread
 from .dialog import Dialog
 from .widgets import button, hbox, label, vbox
 
@@ -17,7 +23,12 @@ class PreviewDialog(Dialog):
         stage.add_css_class("preview-stage")
         body.append(stage)
 
-        viewer = self._image(path) if kind == "image" else self._media(path)
+        if kind == "image":
+            viewer = self._image(path)
+            if viewer is None:
+                viewer = self._converting(path)
+        else:
+            viewer = self._media(path)
         stage.append(viewer or self._unsupported())
 
         bar = hbox(12, "preview-bar")
@@ -45,6 +56,37 @@ class PreviewDialog(Dialog):
         picture.set_vexpand(True)
         picture.update_property([Gtk.AccessibleProperty.LABEL], [path.name])
         return picture
+
+    def _converting(self, path: Path) -> Gtk.Widget | None:
+        digest = hashlib.sha256(f"{path}:{path.stat().st_mtime_ns}".encode()).hexdigest()[:16]
+        target = xdg_dir("XDG_CACHE_HOME", ".cache") / "ibr" / "previews" / f"{digest}.png"
+        commands = converter_commands(str(path), str(target), shutil.which)
+        if not commands and not target.exists():
+            return None
+        spinner = Gtk.Spinner(spinning=True, width_request=32, height_request=32, hexpand=True, vexpand=True,
+                              halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+
+        def convert() -> bool:
+            if target.exists():
+                return True
+            target.parent.mkdir(parents=True, exist_ok=True)
+            for argv in commands:
+                try:
+                    if subprocess.run(argv, capture_output=True, timeout=60).returncode == 0 and target.exists():
+                        return True
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                target.unlink(missing_ok=True)
+            return False
+
+        def done(ok: bool):
+            parent = spinner.get_parent()
+            if parent:
+                parent.remove(spinner)
+                parent.append((self._image(target) if ok else None) or self._unsupported())
+
+        in_thread(convert, done)
+        return spinner
 
     def _media(self, path: Path) -> Gtk.Widget | None:
         stream = Gtk.MediaFile.new_for_filename(str(path))

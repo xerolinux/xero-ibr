@@ -87,3 +87,19 @@ def test_icon_for(name, is_dir, icon):
 def test_media_kind(name, is_dir, kind):
     from ibr.core.afc import media_kind
     assert media_kind(name, is_dir) == kind
+
+
+def test_breadcrumbs_relative_to_root():
+    from ibr.core.afc import breadcrumbs
+    assert breadcrumbs("/", "/", "Media") == [("Media", "/")]
+    assert breadcrumbs("/DCIM/100APPLE", "/", "Media") == [("Media", "/"), ("DCIM", "/DCIM"),
+                                                           ("100APPLE", "/DCIM/100APPLE")]
+    assert breadcrumbs("/Documents", "/Documents", "VLC") == [("VLC", "/Documents")]
+    assert breadcrumbs("/Documents/Movies", "/Documents", "VLC") == [("VLC", "/Documents"),
+                                                                     ("Movies", "/Documents/Movies")]
+
+
+def test_app_root():
+    from ibr.core.afc import location_root
+    assert location_root(None) == "/"
+    assert location_root("org.videolan.vlc-ios") == "/Documents"

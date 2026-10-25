@@ -7,7 +7,7 @@ from .runner import run
 _VOID_P = ctypes.c_void_p
 
 
-def _library(*names: str) -> ctypes.CDLL:
+def load_library(*names: str) -> ctypes.CDLL:
     for name in names:
         try:
             return ctypes.CDLL(name)
@@ -18,8 +18,8 @@ def _library(*names: str) -> ctypes.CDLL:
 
 def list_sharing_apps(udid: str) -> list[SharingApp]:
     """Blocking: asks installation_proxy for user apps that enable iTunes-style File Sharing."""
-    imd = _library("libimobiledevice-1.0.so.6", "libimobiledevice-1.0.so")
-    plist = _library("libplist-2.0.so.4", "libplist-2.0.so")
+    imd = load_library("libimobiledevice-1.0.so.6", "libimobiledevice-1.0.so")
+    plist = load_library("libplist-2.0.so.4", "libplist-2.0.so")
     for name, args in (
         ("idevice_new", [ctypes.POINTER(_VOID_P), ctypes.c_char_p]),
         ("idevice_free", [_VOID_P]),

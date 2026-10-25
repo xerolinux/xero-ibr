@@ -3,12 +3,13 @@ from pathlib import Path
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from ..core.commands import firmware_cmd
-from ..core.firmware import FirmwareParser, FirmwareTarget, OverallPercent, StepChanged, ipsw_matches
+from ..core.firmware import (FirmwareParser, FirmwareTarget, OverallPercent, SignedIpsw, StepChanged, default_choice,
+                             ipsw_choices, ipsw_matches)
 from ..core.fmt import format_size
 from ..core.progress import Error
 from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
-from ..services.firmware import check_tool
+from ..services.firmware import check_tool, fetch_signed
 from ..services.operation import Operation
 from .dialog import Dialog, confirm
 from .widgets import button, hbox, label, set_classes, vbox
@@ -28,6 +29,7 @@ class FirmwareDialog(Dialog):
         self._window = window
         self._device = device
         self._ipsw: str | None = None
+        self._signed = []
         self._tool = None
         self._operation = None
         self._pulse = 0
@@ -50,24 +52,21 @@ class FirmwareDialog(Dialog):
         status = hbox(12, "card")
         status.append(Gtk.Image.new_from_icon_name("software-update-available-symbolic"))
         texts = vbox(2)
-        texts.append(label(f"Installed: {self._device.installed}", "h3"))
+        build = f" ({self._device.build})" if self._device.build else ""
+        texts.append(label(f"Installed: {self._device.installed}{build}", "h3"))
         texts.append(label(f"{spec.name} · model identifier {self._device.product_type or 'unknown'}", "caption"))
         status.append(texts)
         page.append(status)
 
-        model = self._device.product_type or "<model>"
-        guide = hbox(12, "card")
-        required = vbox(4)
-        required.set_hexpand(True)
-        required.append(label("Required iPSW for this device is", "caption"))
-        required.append(label(f"{model}_<version>_<build>_Restore.ipsw", "h3", wrap=True))
-        guide.append(required)
-        copy = button("", "edit-copy-symbolic", "outline", tooltip=f"Copy {model}")
-        copy.set_valign(Gtk.Align.CENTER)
-        copy.connect("clicked", lambda *_: self.get_clipboard().set_content(
-            Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(model.encode()))))
-        guide.append(copy)
-        page.append(guide)
+        self._required = vbox(10, "card")
+        page.append(self._required)
+        model = self._device.product_type
+        if model:
+            self._required.append(label(f"Checking which iPSW Apple signs for {model}…", "caption"))
+            fetch_signed(model, self._on_signed)
+        else:
+            self._required.append(label("The device did not report its model, so the required iPSW is unknown. "
+                                        "Reconnect it and open this window again.", "caption", wrap=True))
 
         page.append(label("FIRMWARE FILE", "section-title"))
         chooser = hbox(12)
@@ -149,6 +148,63 @@ class FirmwareDialog(Dialog):
             page.append(widget)
         return page
 
+    def _on_signed(self, signed):
+        child = self._required.get_first_child()
+        while child:
+            self._required.remove(child)
+            child = self._required.get_first_child()
+        model = self._device.product_type
+        if signed is None:
+            self._required.append(label(f"Could not look up the signed iPSW for {model}. Connect to the internet "
+                                        "and open this window again.", "caption", wrap=True))
+            return
+        if not signed:
+            self._required.append(label(f"Apple does not sign any iPSW for {model} right now.", "caption", wrap=True))
+            return
+        self._signed = signed
+        top = hbox(12)
+        heading = label("Required iPSW for this device", "caption")
+        heading.set_hexpand(True)
+        heading.set_valign(Gtk.Align.CENTER)
+        top.append(heading)
+        self._versions = Gtk.DropDown.new_from_strings(ipsw_choices(signed, self._device.build))
+        self._versions.set_selected(default_choice(signed, self._device.build))
+        self._versions.set_tooltip_text("Builds Apple signs for this device right now")
+        self._versions.set_visible(len(signed) > 1)
+        self._versions.connect("notify::selected", lambda *_: self._show_ipsw())
+        top.append(self._versions)
+        self._required.append(top)
+
+        row = hbox(12)
+        texts = vbox(2)
+        texts.set_hexpand(True)
+        self._ipsw_name = label("", "h3", wrap=True, selectable=True)
+        texts.append(self._ipsw_name)
+        self._ipsw_meta = label("", "caption")
+        texts.append(self._ipsw_meta)
+        row.append(texts)
+        for icon, tooltip, field in (("edit-copy-symbolic", "Copy file name", "filename"),
+                                     ("insert-link-symbolic", "Copy Apple download link", "url")):
+            copy = button("", icon, "outline", tooltip=tooltip)
+            copy.set_valign(Gtk.Align.CENTER)
+            copy.connect("clicked", lambda _b, f=field: self._copy(getattr(self._selected_ipsw(), f)))
+            row.append(copy)
+        self._required.append(row)
+        self._show_ipsw()
+
+    def _selected_ipsw(self) -> SignedIpsw:
+        return self._signed[self._versions.get_selected()]
+
+    def _show_ipsw(self):
+        ipsw = self._selected_ipsw()
+        self._ipsw_name.set_label(ipsw.filename)
+        size = f" · {format_size(ipsw.size)}" if ipsw.size else ""
+        self._ipsw_meta.set_label(f"{self._os} {ipsw.version} ({ipsw.build}){size}")
+
+    def _copy(self, text: str):
+        self.get_clipboard().set_content(
+            Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(text.encode())))
+
     def _on_tool(self, state: str):
         self._tool = state
         self._refresh()
@@ -167,6 +223,10 @@ class FirmwareDialog(Dialog):
                 self._ipsw = source.open_finish(result).get_path()
             except GLib.Error:
                 return
+            name = Path(self._ipsw).name
+            match = next((i for i, ipsw in enumerate(self._signed) if ipsw.filename == name), None)
+            if match is not None:
+                self._versions.set_selected(match)
             self._refresh()
 
         dialog.open(self, None, chosen)

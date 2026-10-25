@@ -35,7 +35,7 @@ class Application(Gtk.Application):
             Gdk.Display.get_default(), self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         Gtk.Settings.get_default().connect("notify::gtk-interface-color-scheme", lambda *_: self._sync_scheme())
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-        theme.add_search_path(str(files("ibr") / "data"))
+        theme.add_search_path(str(files("ibr") / "data" / "icons"))
         self.apply_theme(self.settings.theme)
 
         for name, accels, handler in (

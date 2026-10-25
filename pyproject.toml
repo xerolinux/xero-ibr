@@ -20,7 +20,7 @@ version = { attr = "ibr.__version__" }
 include = ["ibr*"]
 
 [tool.setuptools.package-data]
-ibr = ["data/*"]
+ibr = ["data/*", "data/icons/hicolor/scalable/apps/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -12,7 +12,7 @@ from .widgets import button, hbox, label, vbox
 def about_logo_path() -> str:
     data = files("ibr") / "data"
     custom = data / "about-logo.svg"
-    return str(custom if custom.is_file() else data / "com.techxero.ibr.svg")
+    return str(custom if custom.is_file() else data / "icons/hicolor/scalable/apps/com.techxero.ibr.svg")
 
 
 class AboutWindow(Dialog):

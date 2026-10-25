@@ -56,6 +56,10 @@ class DeviceView(Gtk.Box):
         grid = Gtk.Grid(column_spacing=12, row_spacing=12, column_homogeneous=True)
         self.storage = InfoCard("Storage")
         self.last_backup = InfoCard("Last backup")
+        self.last_backup.set_tooltip_text(
+            "Backups hold your data and settings. Apps are downloaded again from the App Store, iOS itself is "
+            "not included, and photos kept in iCloud stay in iCloud, so a backup is smaller than the storage "
+            "used on the device.")
         self.battery = InfoCard("Battery")
         self.model = InfoCard("Model")
         for index, card in enumerate((self.storage, self.last_backup, self.battery, self.model)):
@@ -103,6 +107,7 @@ class DeviceView(Gtk.Box):
 
     _busy = False
     _udid = None
+    _home = None
 
     def _on_encrypt(self, check):
         self.emit("encrypt-toggled", check.get_active())
@@ -114,12 +119,15 @@ class DeviceView(Gtk.Box):
         self._encrypt.handler_unblock(self._encrypt_handler)
 
     def update(self, info: DeviceInfo, latest: BackupEntry | None, latest_size: str | None,
-               show_identifiers: bool, has_backups: bool):
+               show_identifiers: bool, has_backups: bool, home=None):
         spec = info.spec
         if info.udid != self._udid:
             self._udid = info.udid
             self._banner.set_visible(False)
         self.art.set_device(spec, info.finish, info.product_type)
+        if home is not self._home:
+            self._home = home
+            self.art.set_home(home)
         supported = is_supported(info.os_version)
         self._name.set_label(info.name or spec.name)
         self._subtitle.set_label(f"{spec.name} · {info.os_label}")
@@ -131,7 +139,9 @@ class DeviceView(Gtk.Box):
             self._pill.set_tooltip_text("Update the device in Settings > General > Software Update.")
 
         if info.total_bytes and info.used_bytes is not None:
-            self.storage.update(f"{format_size(info.used_bytes)} of {format_size(info.total_bytes)}",
+            system = f"Includes {format_size(info.system_bytes)} for {info.os_label.split(' ')[0]}" \
+                if info.system_bytes else ""
+            self.storage.update(f"{format_size(info.used_bytes)} of {format_size(info.total_bytes)}", system,
                                 fraction=info.used_bytes / info.total_bytes)
         else:
             self.storage.update("Unknown")

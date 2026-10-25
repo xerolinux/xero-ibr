@@ -1,3 +1,4 @@
+import io
 import math
 from pathlib import Path
 
@@ -62,6 +63,7 @@ class DeviceArt(Gtk.DrawingArea):
         self._spec: ModelSpec | None = None
         self._finish = "#3a3a3c"
         self._image: cairo.ImageSurface | None = None
+        self._home = None
         self.set_draw_func(self._draw)
 
     def set_device(self, spec: ModelSpec | None, finish: str | None = None, product_type: str | None = None):
@@ -73,6 +75,23 @@ class DeviceArt(Gtk.DrawingArea):
         except (cairo.Error, OSError):
             self._image = None
         self.update_property([Gtk.AccessibleProperty.LABEL], [spec.name if spec else ""])
+        self.queue_draw()
+
+    def set_home(self, home):
+        """home: HomeScreenImage read from the connected device; None shows the screen off."""
+        if home is None:
+            self._home = None
+        else:
+            def surface(data):
+                try:
+                    return cairo.ImageSurface.create_from_png(io.BytesIO(data))
+                except (cairo.Error, MemoryError):
+                    return None
+
+            def icons(entries):
+                return [(icon.bundle_id is None, [s for s in map(surface, pngs) if s]) for icon, pngs in entries]
+
+            self._home = (surface(home.wallpaper) if home.wallpaper else None, icons(home.dock), icons(home.apps))
         self.queue_draw()
 
     def _draw(self, area, cr, width, height):
@@ -223,7 +242,10 @@ class DeviceArt(Gtk.DrawingArea):
         _fill(cr, glass)
 
         sx, sy, sw, sh, sr = self._screen_rect(spec, gx, gy, gw, gh, glass_r, scale)
-        self._screen_off(cr, sx, sy, sw, sh, sr)
+        if detailed and self._home:
+            self._home_screen(cr, spec, sx, sy, sw, sh, sr)
+        else:
+            self._screen_off(cr, sx, sy, sw, sh, sr)
         self._front_details(cr, spec, gx, gy, gw, gh, sx, sy, sw, sh, scale, glass, light_front)
 
     @staticmethod
@@ -236,6 +258,73 @@ class DeviceArt(Gtk.DrawingArea):
             return gx + side, gy + vertical, gw - 2 * side, gh - 2 * vertical, 0.6 * scale
         bezel = spec.bezel_mm * scale
         return gx + bezel, gy + bezel, gw - 2 * bezel, gh - 2 * bezel, max(glass_r - bezel, 1.5 * scale)
+
+    def _home_screen(self, cr, spec, x, y, w, h, r):
+        wallpaper, dock, apps = self._home
+        cr.save()
+        _rrect(cr, x, y, w, h, r)
+        cr.clip()
+        if wallpaper:
+            fit = max(w / wallpaper.get_width(), h / wallpaper.get_height())
+            cr.save()
+            cr.translate(x + (w - wallpaper.get_width() * fit) / 2, y + (h - wallpaper.get_height() * fit) / 2)
+            cr.scale(fit, fit)
+            cr.set_source_surface(wallpaper, 0, 0)
+            cr.get_source().set_filter(cairo.FILTER_GOOD)
+            cr.paint()
+            cr.restore()
+        else:
+            self._screen_off(cr, x, y, w, h, r)
+        columns = 6 if spec.kind == "ipad" else 4
+        size = w / (columns + (columns + 1) * 0.42)
+        gap = size * 0.42
+        dock_h = size * 1.5 if dock else 0
+        top = y + h * (0.075 if spec.cutout in ("island", "notch") else 0.04)
+        rows = max(1, int((y + h - dock_h - h * 0.05 - top) // (size * 1.38)))
+        for index, tile in enumerate(apps[: columns * rows]):
+            column, row = index % columns, index // columns
+            self._icon(cr, tile, x + gap + column * (size + gap), top + row * size * 1.38, size)
+        if dock:
+            count = min(len(dock), columns)
+            dock_w = count * size + (count + 1) * gap
+            dx, dy = x + (w - dock_w) / 2, y + h - dock_h - h * 0.025
+            _rrect(cr, dx, dy, dock_w, dock_h, dock_h * 0.32)
+            _fill(cr, WHITE, 0.22)
+            for index, tile in enumerate(dock[:count]):
+                self._icon(cr, tile, dx + gap + index * (size + gap), dy + (dock_h - size) / 2, size)
+        cr.restore()
+
+    @staticmethod
+    def _icon(cr, tile, x, y, size):
+        is_folder, surfaces = tile
+        radius = size * 0.225
+        cr.save()
+        _rrect(cr, x, y, size, size, radius)
+        cr.clip()
+        if is_folder:
+            _rrect(cr, x, y, size, size, radius)
+            _fill(cr, WHITE, 0.3)
+            mini = size * 0.32
+            for index, surface in enumerate(surfaces[:4]):
+                mx = x + size * 0.13 + (index % 2) * (mini + size * 0.1)
+                my = y + size * 0.13 + (index // 2) * (mini + size * 0.1)
+                DeviceArt._paint(cr, surface, mx, my, mini)
+        elif surfaces:
+            DeviceArt._paint(cr, surfaces[0], x, y, size)
+        else:
+            _rrect(cr, x, y, size, size, radius)
+            _fill(cr, WHITE, 0.35)
+        cr.restore()
+
+    @staticmethod
+    def _paint(cr, surface, x, y, size):
+        cr.save()
+        cr.translate(x, y)
+        cr.scale(size / surface.get_width(), size / surface.get_height())
+        cr.set_source_surface(surface, 0, 0)
+        cr.get_source().set_filter(cairo.FILTER_GOOD)
+        cr.paint()
+        cr.restore()
 
     @staticmethod
     def _screen_off(cr, x, y, w, h, r):
