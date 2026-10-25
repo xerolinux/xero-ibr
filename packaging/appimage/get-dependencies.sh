@@ -24,8 +24,12 @@ pacman -Syu --noconfirm --needed \
 	pkgconf \
 	python \
 	python-cairo \
+	python-build \
 	python-gobject \
-	python-pytest
+	python-installer \
+	python-pytest \
+	python-setuptools \
+	python-wheel
 
 build_from_git() {
 	repo=$1

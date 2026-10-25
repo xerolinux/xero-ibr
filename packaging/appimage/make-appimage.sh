@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds iBR as a self-contained AppImage (bundled Python, GTK4, glibc and libimobiledevice tools)
 # with quick-sharun from https://github.com/pkgforge-dev/Anylinux-AppImages.
-# Works in CI and on any Arch Linux host that has iBR's runtime dependencies installed.
+# iBR must be installed into the build system first: CI does that here as root; elsewhere run `makepkg -si`.
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -16,22 +16,27 @@ export OUTPATH="${OUTPATH:-$ROOT/dist}"
 export OUTNAME="iBR-$VERSION-$ARCH.AppImage"
 export ICON="$ROOT/ibr/data/com.techxero.ibr.svg"
 export DESKTOP="$ROOT/data/com.techxero.ibr.desktop"
-export MAIN_BIN=ibr
 export DEPLOY_PYTHON=1
 export DEPLOY_GTK=1
 export GTK_FIX_NONSENSE=1
-# Trace the real app so libraries GTK loads at runtime get bundled too.
-export STRACE_BINARY=python3
-export STRACE_FLAGS="-m ibr"
-export PYTHONPATH="$ROOT"
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
 	export UPINFO="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|*$ARCH.AppImage.zsync"
 fi
 
 rm -rf "$APPDIR"
 mkdir -p "$WORK"
-cd "$WORK"
 
+if [ "$(id -u)" = 0 ]; then
+	rm -rf "$WORK/wheel"
+	python3 -m build --wheel --no-isolation --outdir "$WORK/wheel" "$ROOT"
+	python3 -m installer --destdir=/ "$WORK"/wheel/*.whl
+fi
+if [ ! -x /usr/bin/ibr ]; then
+	echo "ERROR: /usr/bin/ibr not found. Install iBR first (makepkg -si on Arch)." >&2
+	exit 1
+fi
+
+cd "$WORK"
 QUICK_SHARUN=$(command -v quick-sharun || true)
 if [ -z "$QUICK_SHARUN" ]; then
 	QUICK_SHARUN="$WORK/quick-sharun"
@@ -39,6 +44,7 @@ if [ -z "$QUICK_SHARUN" ]; then
 fi
 
 "$QUICK_SHARUN" \
+	/usr/bin/ibr \
 	/usr/bin/python3 \
 	/usr/bin/idevice_id \
 	/usr/bin/ideviceinfo \
@@ -52,22 +58,6 @@ fi
 	/usr/lib/libgirepository-2.0.so* \
 	/usr/lib/libcairo-gobject.so*
 
-SITE=$(find "$APPDIR" -type d -path '*/python3*/site-packages' -print -quit)
-if [ -z "$SITE" ]; then
-	echo "ERROR: bundled site-packages not found" >&2
-	exit 1
-fi
-rm -rf "$SITE/ibr"
-cp -r "$ROOT/ibr" "$SITE/ibr"
-find "$SITE/ibr" -name '__pycache__' -prune -exec rm -rf {} +
-
-cat > "$APPDIR/bin/ibr" <<'EOF'
-#!/bin/sh
-exec python3 -m ibr "$@"
-EOF
-chmod +x "$APPDIR/bin/ibr"
-
-unset PYTHONPATH
 "$QUICK_SHARUN" --make-appimage
 
 if [ "${SKIP_TEST:-0}" != 1 ]; then
