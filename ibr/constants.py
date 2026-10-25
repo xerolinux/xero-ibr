@@ -1,0 +1,8 @@
+APP_ID = "com.techxero.ibr"
+APP_NAME = "iBackup/Restore"
+APP_SHORT = "iBR"
+TAGLINE = "iPhone and iPad backup for Linux"
+LICENSE_NOTE = "Some features might not be supported due to licensing."
+GITHUB_URL = "https://github.com/XeroLinux"
+DISCORD_URL = "https://discord.xerolinux.xyz"
+UPDATE_REPO = "xerolinux/xero-ibr"

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ibr"
+dynamic = ["version"]
+description = "iBackup/Restore: back up and restore iPhone and iPad on Linux"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+
+[project.scripts]
+ibr = "ibr.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "ibr.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["ibr*"]
+
+[tool.setuptools.package-data]
+ibr = ["data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

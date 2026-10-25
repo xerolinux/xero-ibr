@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+build/
+dist/
+pkg/
+src/
+push.sh
+*.pkg.tar.zst
+*.AppImage
+*.zsync

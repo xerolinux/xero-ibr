@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=iBackup/Restore
+GenericName=iPhone and iPad Backup
+Comment=Back up and restore iPhone and iPad
+Exec=ibr
+Icon=com.techxero.ibr
+Terminal=false
+Categories=Utility;GTK;
+Keywords=iphone;ipad;ios;ipados;backup;restore;apple;ibr;
+StartupNotify=true
