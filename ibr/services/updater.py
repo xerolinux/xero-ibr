@@ -9,10 +9,10 @@ from gi.repository import GLib
 
 from .. import __version__
 from ..constants import UPDATE_REPO
-from ..core.update import UpdateInfo, clean_env, pick_update
+from ..core.update import UpdateInfo, asset_url, clean_env, latest_version, newer, parse_checksum
 from .runner import in_thread
 
-_HEADERS = {"User-Agent": f"iBR/{__version__}", "Accept": "application/vnd.github+json"}
+_HEADERS = {"User-Agent": f"iBR/{__version__}"}
 
 
 def running_appimage() -> Path | None:
@@ -31,13 +31,20 @@ def check(callback):
         return
 
     def work():
-        request = urllib.request.Request(f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
-                                         headers=_HEADERS)
         try:
+            request = urllib.request.Request(f"https://github.com/{UPDATE_REPO}/releases/latest",
+                                             headers=_HEADERS, method="HEAD")
             with urllib.request.urlopen(request, timeout=20) as response:
-                return pick_update(response.read(), platform.machine(), __version__)
+                version = latest_version(response.geturl())
+            if not version or not newer(version, __version__):
+                return None
+            url = asset_url(UPDATE_REPO, version, platform.machine())
+            with urllib.request.urlopen(urllib.request.Request(url + ".sha256", headers=_HEADERS),
+                                        timeout=20) as response:
+                sha256 = parse_checksum(response.read(4096).decode(errors="replace"), url.rsplit("/", 1)[-1])
         except OSError:
             return None
+        return UpdateInfo(version, url, sha256) if sha256 else None
 
     in_thread(work, callback)
 
@@ -54,17 +61,18 @@ def install(info: UpdateInfo, progress, done):
         digest = hashlib.sha256()
         received = 0
         try:
-            request = urllib.request.Request(info.url, headers={"User-Agent": _HEADERS["User-Agent"]})
+            request = urllib.request.Request(info.url, headers=_HEADERS)
             with urllib.request.urlopen(request, timeout=60) as response, open(partial, "wb") as out:
+                size = int(response.headers.get("Content-Length") or 0)
                 while chunk := response.read(1 << 20):
                     out.write(chunk)
                     digest.update(chunk)
                     received += len(chunk)
-                    if info.size:
-                        GLib.idle_add(lambda value=received / info.size: progress(value) and False)
-            if info.size and received != info.size:
+                    if size:
+                        GLib.idle_add(lambda value=received / size: progress(value) and False)
+            if size and received != size:
                 raise OSError("the download was incomplete")
-            if info.sha256 and digest.hexdigest() != info.sha256:
+            if digest.hexdigest() != info.sha256:
                 raise OSError("the download did not match the published checksum")
             partial.chmod(0o755)
             os.replace(partial, target)

@@ -1,18 +1,4 @@
-import json
-
-from ibr.core.update import clean_env, newer, pick_update
-
-RELEASE = {
-    "tag_name": "v0.1.42",
-    "assets": [
-        {"name": "iBR-0.1.42-x86_64.AppImage", "browser_download_url": "https://github.com/o/r/a.AppImage",
-         "size": 98_000_000, "digest": "sha256:" + "ab" * 32},
-        {"name": "iBR-0.1.42-x86_64.AppImage.zsync", "browser_download_url": "https://github.com/o/r/a.zsync",
-         "size": 300_000},
-        {"name": "iBR-0.1.42-aarch64.AppImage", "browser_download_url": "https://github.com/o/r/b.AppImage",
-         "size": 97_000_000},
-    ],
-}
+from ibr.core.update import asset_url, clean_env, latest_version, newer, parse_checksum
 
 
 def test_newer():
@@ -21,30 +7,22 @@ def test_newer():
     assert not newer("0.1.42", "0.1.42")
 
 
-def test_pick_update_for_arch():
-    info = pick_update(json.dumps(RELEASE).encode(), "x86_64", "0.1.41")
-    assert info.version == "0.1.42"
-    assert info.url == "https://github.com/o/r/a.AppImage"
-    assert info.size == 98_000_000
-    assert info.sha256 == "ab" * 32
+def test_latest_version_from_release_redirect():
+    assert latest_version("https://github.com/o/r/releases/tag/v0.1.42") == "0.1.42"
+    assert latest_version("https://github.com/o/r/releases") is None
+    assert latest_version("https://github.com/login?return_to=x") is None
 
 
-def test_pick_update_without_digest():
-    info = pick_update(json.dumps(RELEASE).encode(), "aarch64", "0.1.41")
-    assert info.url == "https://github.com/o/r/b.AppImage"
-    assert info.sha256 is None
+def test_asset_url():
+    assert asset_url("o/r", "0.1.42", "x86_64") == \
+        "https://github.com/o/r/releases/download/v0.1.42/iBR-0.1.42-x86_64.AppImage"
 
 
-def test_no_update_when_current():
-    assert pick_update(json.dumps(RELEASE).encode(), "x86_64", "0.1.42") is None
-
-
-def test_no_update_without_matching_asset():
-    assert pick_update(json.dumps(RELEASE).encode(), "riscv64", "0.1.1") is None
-
-
-def test_bad_payload():
-    assert pick_update(b"rate limited", "x86_64", "0.1.1") is None
+def test_parse_checksum_matches_file_name():
+    digest = "ab" * 32
+    assert parse_checksum(f"{digest}  iBR-0.1.42-x86_64.AppImage\n", "iBR-0.1.42-x86_64.AppImage") == digest
+    assert parse_checksum(f"{digest}  other.AppImage\n", "iBR-0.1.42-x86_64.AppImage") is None
+    assert parse_checksum("Not Found", "iBR-0.1.42-x86_64.AppImage") is None
 
 
 def test_clean_env_drops_appimage_runtime_variables():

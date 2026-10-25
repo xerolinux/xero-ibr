@@ -1,4 +1,3 @@
-import json
 import re
 from dataclasses import dataclass
 
@@ -12,8 +11,7 @@ _RUNTIME_VARS = {"APPIMAGE", "APPDIR", "ARGV0", "OWD", "LD_PRELOAD", "LD_LIBRARY
 class UpdateInfo:
     version: str
     url: str
-    size: int
-    sha256: str | None
+    sha256: str
 
 
 def _version(text: str) -> tuple[int, ...]:
@@ -24,23 +22,22 @@ def newer(candidate: str, current: str) -> bool:
     return _version(candidate) > _version(current)
 
 
-def pick_update(data: bytes, arch: str, current: str) -> UpdateInfo | None:
-    """Reads a GitHub "latest release" payload and returns the AppImage for this arch if it is newer."""
-    try:
-        release = json.loads(data)
-    except ValueError:
-        return None
-    if not isinstance(release, dict):
-        return None
-    version = str(release.get("tag_name", "")).lstrip("v")
-    if not version or not newer(version, current):
-        return None
-    for asset in release.get("assets", []):
-        name = str(asset.get("name", ""))
-        if name.endswith(f"-{arch}.AppImage") and asset.get("browser_download_url"):
-            digest = str(asset.get("digest") or "")
-            return UpdateInfo(version, asset["browser_download_url"], int(asset.get("size") or 0),
-                              digest.removeprefix("sha256:") if digest.startswith("sha256:") else None)
+def latest_version(final_url: str) -> str | None:
+    """Version from where github.com/<repo>/releases/latest redirects, which needs no rate-limited API call."""
+    match = re.search(r"/releases/tag/v?(\d+(?:\.\d+)*)$", final_url)
+    return match[1] if match else None
+
+
+def asset_url(repo: str, version: str, arch: str) -> str:
+    return f"https://github.com/{repo}/releases/download/v{version}/iBR-{version}-{arch}.AppImage"
+
+
+def parse_checksum(text: str, name: str) -> str | None:
+    """The digest for name from sha256sum output."""
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].lstrip("*") == name and re.fullmatch(r"[0-9a-f]{64}", parts[0]):
+            return parts[0]
     return None
 
 

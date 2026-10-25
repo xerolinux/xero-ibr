@@ -58,6 +58,8 @@ jobs:
         with:
           pattern: AppImage-*
           merge-multiple: true
+      - name: Checksums
+        run: for f in *.AppImage; do sha256sum "$f" > "$f.sha256"; done
       - name: Publish release
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
@@ -69,3 +71,4 @@ jobs:
           files: |
             *.AppImage
             *.AppImage.zsync
+            *.AppImage.sha256

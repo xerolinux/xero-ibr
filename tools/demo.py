@@ -316,7 +316,7 @@ def install_simulation():
     from ibr.core.update import UpdateInfo
     from ibr.services import updater
     updater.check = lambda callback: GLib.idle_add(lambda: callback(
-        UpdateInfo("0.2.0", "https://example.invalid/iBR.AppImage", 98_000_000, None)) and False)
+        UpdateInfo("0.2.0", "https://example.invalid/iBR.AppImage", "0" * 64)) and False)
     updater.install = fake_update_install
     updater.relaunch_after_exit = demo_relaunch
 
