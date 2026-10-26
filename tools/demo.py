@@ -362,7 +362,7 @@ def fake_changepw_cmd(udid, old, new):
                     ("Backup encryption password has been changed successfully.\n", 0)])
 
 
-def fake_firmware_cmd(udid, erase, ipsw, cache):
+def fake_firmware_cmd(udid, erase, ipsw, cache, ecid=None):
     lines = []
     for step, pause in ((0, 0.15), (1, 0.15), (2, 0.08), (3, 0.08), (4, 0.08)):
         lines += [(f"progress: {step} {n / 20:.6f}\n", pause) for n in range(1, 21)]

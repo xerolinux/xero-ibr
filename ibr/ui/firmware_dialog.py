@@ -1,18 +1,20 @@
+import time
 from pathlib import Path
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from ..core.commands import firmware_cmd
-from ..core.firmware import (FirmwareParser, FirmwareTarget, OverallPercent, SignedIpsw, StepChanged, default_choice,
-                             ipsw_choices, ipsw_matches)
+from ..core.firmware import (STEP_NAMES, FirmwareParser, FirmwareTarget, OverallPercent, SignedIpsw, StepChanged,
+                             default_choice, ipsw_choices, ipsw_matches)
 from ..core.fmt import format_size
 from ..core.progress import Error
 from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
 from ..services.firmware import check_tool, fetch_signed
 from ..services.operation import Operation
+from .device_art import DeviceArt
 from .dialog import PANEL, Dialog, confirm
-from .widgets import button, hbox, label, set_classes, vbox
+from .widgets import button, clear, hbox, label, set_classes, vbox
 
 TOOL_HELP = {
     "missing": "Firmware updates need idevicerestore. On Arch install idevicerestore-git from the AUR; "
@@ -33,6 +35,9 @@ class FirmwareDialog(Dialog):
         self._tool = None
         self._operation = None
         self._pulse = 0
+        self._seen: set[int] = set()
+        self._started = 0.0
+        self._erasing = False
         self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._stack.add_named(self._choose_page(), "choose")
         self._stack.add_named(self._progress_page(), "progress")
@@ -46,8 +51,8 @@ class FirmwareDialog(Dialog):
             getattr(box, f"set_margin_{side}")(value)
 
     def _choose_page(self):
-        page = vbox(16)
-        self._margins(page)
+        page = vbox(12)
+        self._margins(page, 20)
         spec = self._device.spec
         status = hbox(12, "card")
         status.append(Gtk.Image.new_from_icon_name("software-update-available-symbolic"))
@@ -58,8 +63,9 @@ class FirmwareDialog(Dialog):
         status.append(texts)
         page.append(status)
 
-        self._required = vbox(10, "card")
-        page.append(self._required)
+        firmware = vbox(12, "card")
+        self._required = vbox(10)
+        firmware.append(self._required)
         model = self._device.product_type
         if model:
             self._required.append(label(f"Checking which iPSW Apple signs for {model}…", "caption"))
@@ -67,8 +73,6 @@ class FirmwareDialog(Dialog):
         else:
             self._required.append(label("The device did not report its model, so the required iPSW is unknown. "
                                         "Reconnect it and open this window again.", "caption", wrap=True))
-
-        page.append(label("FIRMWARE FILE", "section-title"))
         chooser = hbox(12)
         pick = button("Choose .ipsw File…", "document-open-symbolic", "outline")
         pick.connect("clicked", lambda *_: self._choose_file())
@@ -77,49 +81,66 @@ class FirmwareDialog(Dialog):
         self._ipsw_label.set_hexpand(True)
         self._ipsw_label.set_valign(Gtk.Align.CENTER)
         chooser.append(self._ipsw_label)
-        page.append(chooser)
+        firmware.append(chooser)
         self._match = label("", "caption", wrap=True)
         self._match.set_visible(False)
-        page.append(self._match)
+        firmware.append(self._match)
+        page.append(firmware)
 
         page.append(label("WHAT TO DO", "section-title"))
-        self._update = Gtk.CheckButton(label=f"Update: install this {self._os} and keep all data", active=True)
-        self._erase = Gtk.CheckButton(label=f"Restore: erase everything and install a clean {self._os}",
-                                      group=self._update)
+        choices = Gtk.Grid(column_spacing=12, column_homogeneous=True)
+        self._update = Gtk.CheckButton(label="Update: keep all data", active=True)
+        self._erase = Gtk.CheckButton(label="Restore: erase everything", group=self._update)
         self._erase.connect("toggled", lambda *_: self._refresh())
-        page.append(self._update)
-        page.append(self._erase)
+        for column, choice in enumerate((self._update, self._erase)):
+            choice.add_css_class("choice-card")
+            choices.attach(choice, column, 0, 1, 1)
+        page.append(choices)
 
-        self._warning = label("", "warning-box", wrap=True)
-        page.append(self._warning)
+        notice = vbox(10, "warning-box")
+        self._warning = label("", wrap=True)
+        notice.append(self._warning)
         self._ack = Gtk.CheckButton()
         self._ack.connect("toggled", lambda *_: self._refresh())
-        page.append(self._ack)
-        page.append(label("Apple only lets devices install versions it still signs, so an older .ipsw may be "
-                          "refused. If the device restarts into recovery mode and is not found, add "
-                          "libirecovery's udev rules.", "caption", wrap=True))
+        notice.append(self._ack)
+        page.append(notice)
 
+        footer = hbox(16)
+        footer.set_margin_start(20)
+        footer.set_margin_end(20)
+        footer.set_margin_bottom(20)
+        note = label("Apple only installs versions it still signs. If the device restarts into recovery mode and "
+                     "is not found, add libirecovery's udev rules.", "caption", wrap=True)
+        note.set_hexpand(True)
+        footer.append(note)
         self._start = button("Update", None, "primary", "big")
-        self._start.set_halign(Gtk.Align.END)
-        self._start.set_margin_end(24)
-        self._start.set_margin_top(12)
-        self._start.set_margin_bottom(20)
+        self._start.set_valign(Gtk.Align.CENTER)
         self._start.connect("clicked", self._on_start)
+        footer.append(self._start)
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         scroller.set_child(page)
         outer = vbox(0)
         outer.append(scroller)
-        outer.append(self._start)
+        outer.append(footer)
         self._refresh()
         return outer
 
+    def _art(self) -> DeviceArt:
+        art = DeviceArt(240, 330)
+        art.set_device(self._device.spec, product_type=self._device.product_type)
+        art.set_valign(Gtk.Align.CENTER)
+        return art
+
     def _progress_page(self):
-        page = vbox(16)
-        page.set_valign(Gtk.Align.CENTER)
+        page = hbox(40)
         self._margins(page, 32)
+        page.append(self._art())
+        column = vbox(16)
+        column.set_hexpand(True)
+        column.set_valign(Gtk.Align.CENTER)
         self._progress_title = label("", "h2")
-        page.append(self._progress_title)
-        card = vbox(14, "progress-card")
+        column.append(self._progress_title)
+        card = vbox(12, "progress-card")
         top = hbox(12)
         self._step = label("Starting", "h3", ellipsize=True)
         self._step.set_hexpand(True)
@@ -131,26 +152,51 @@ class FirmwareDialog(Dialog):
         self._bar.add_css_class("thick")
         card.append(self._bar)
         self._detail = label("", "caption", ellipsize=True)
+        self._detail.set_visible(False)
         card.append(self._detail)
-        page.append(card)
-        page.append(label("Keep the device plugged in. It restarts several times; do not unplug it until "
-                          "this window says it is finished.", "caption", wrap=True))
+        column.append(card)
+        self._stage_rows = []
+        stages = vbox(8)
+        for name in STEP_NAMES:
+            row = label(name, "step")
+            self._stage_rows.append(row)
+            stages.append(row)
+        column.append(stages)
+        column.append(label("Keep the device plugged in. It restarts several times; do not unplug it until "
+                            "this window says it is finished.", "caption", wrap=True))
+        page.append(column)
         return page
 
+    def _show_stage(self, current: int):
+        """idevicerestore skips and reorders steps by device, so a step is done once a later one has started."""
+        if current < 0:
+            self._seen = set()
+        else:
+            self._seen.add(current)
+        for index, row in enumerate(self._stage_rows):
+            done, now = index in self._seen and index != current, index == current
+            name = STEP_NAMES[index]
+            row.set_label(f"✓ {name}" if done else f"● {name}" if now else name)
+            set_classes(row, *(["done"] if done else ["current"] if now else []), keep=("step",))
+
     def _result_page(self):
-        page = vbox(14)
-        page.set_valign(Gtk.Align.CENTER)
-        page.set_halign(Gtk.Align.CENTER)
-        self._result_icon = Gtk.Image(pixel_size=56)
-        self._result_title = label("", "h2", xalign=0.5)
-        self._result_text = label("", "body-text", xalign=0.5, wrap=True)
-        self._result_text.set_max_width_chars(52)
-        self._result_text.set_justify(Gtk.Justification.CENTER)
+        page = hbox(40)
+        self._margins(page, 32)
+        page.append(self._art())
+        column = vbox(14)
+        column.set_hexpand(True)
+        column.set_valign(Gtk.Align.CENTER)
+        self._result_icon = Gtk.Image(pixel_size=48)
+        self._result_icon.set_halign(Gtk.Align.START)
+        self._result_title = label("", "h2")
+        self._result_text = label("", "body-text", wrap=True)
+        self._result_facts = vbox(6, "card")
         close = button("Close", None, "primary", "big")
-        close.set_halign(Gtk.Align.CENTER)
+        close.set_halign(Gtk.Align.START)
         close.connect("clicked", lambda *_: self.close())
-        for widget in (self._result_icon, self._result_title, self._result_text, close):
-            page.append(widget)
+        for widget in (self._result_icon, self._result_title, self._result_text, self._result_facts, close):
+            column.append(widget)
+        page.append(column)
         return page
 
     def _on_signed(self, signed):
@@ -291,6 +337,9 @@ class FirmwareDialog(Dialog):
         self._operation.connect("event", self._on_event)
         self._operation.connect("done", self._on_done)
         self._progress_title.set_label(("Restoring " if erase else "Updating ") + self._device.name)
+        self._erasing = erase
+        self._started = time.monotonic()
+        self._show_stage(-1)
         self._bar.set_fraction(0)
         self._pulse = GLib.timeout_add(120, lambda: self._bar.pulse() or True)
         self._stack.set_visible_child_name("progress")
@@ -306,12 +355,14 @@ class FirmwareDialog(Dialog):
     def _on_event(self, operation, event):
         if isinstance(event, StepChanged):
             self._step.set_label(event.name)
+            self._show_stage(event.index)
         elif isinstance(event, OverallPercent):
             self._stop_pulse()
             self._bar.set_fraction(event.value / 100)
             self._percent.set_label(f"{event.value:.0f}%")
         elif isinstance(event, Error):
             self._detail.set_label(event.message)
+            self._detail.set_visible(True)
 
     def _on_done(self, operation, success: bool, message: str):
         self._stop_pulse()
@@ -327,6 +378,16 @@ class FirmwareDialog(Dialog):
             self._result_title.set_label("The update did not finish")
             self._result_text.set_label(f"{message}\n\nIf the device shows a recovery screen, run this again "
                                         "with Restore. Logs are in Settings > Advanced.")
+        clear(self._result_facts)
+        minutes = max(1, round((time.monotonic() - self._started) / 60))
+        for name, value in (("Firmware", Path(self._ipsw).name), ("Mode", "Restore" if self._erasing else "Update"),
+                            ("Time taken", f"{minutes} min")):
+            row = hbox(12)
+            key = label(name, "caption")
+            key.set_size_request(90, -1)
+            row.append(key)
+            row.append(label(value, ellipsize=True))
+            self._result_facts.append(row)
         self._window.notify_done(f"{self._os} update finished" if success else f"{self._os} update failed",
                                  self._device.name)
         self._stack.set_visible_child_name("result")

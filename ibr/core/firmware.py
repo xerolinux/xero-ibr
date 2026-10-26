@@ -162,6 +162,7 @@ _STEPS = (
     ("Finishing up", 2),
     ("Sending boot images", 3),
 )
+STEP_NAMES = tuple(name for name, _ in _STEPS)
 _PROGRESS = re.compile(r"^progress: (\d+) ([\d.]+)$")
 _FAILED_STATUS = re.compile(r"^Status: (?!Restore Finished)(.+?)\.?$")
 
