@@ -12,6 +12,7 @@ depends=(
   'libsecret'
   'python'
   'python-cairo'
+  'python-cryptography'
   'python-gobject'
   'usbmuxd'
 )

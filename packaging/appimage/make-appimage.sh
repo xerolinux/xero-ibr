@@ -45,6 +45,8 @@ if [ -z "$QUICK_SHARUN" ]; then
 	[ -x "$QUICK_SHARUN" ] || { curl -fsSL "$QUICK_SHARUN_URL" -o "$QUICK_SHARUN" && chmod +x "$QUICK_SHARUN"; }
 fi
 
+# quick-sharun skips _hashlib (needed by pbkdf2_hmac) and does not scan site-packages for libraries; the
+# backup browser decrypts with both.
 "$QUICK_SHARUN" \
 	/usr/bin/ibr \
 	/usr/bin/python3 \
@@ -58,7 +60,9 @@ fi
 	/usr/lib/libgtk-4.so* \
 	/usr/lib/libsecret-1.so* \
 	/usr/lib/libgirepository-2.0.so* \
-	/usr/lib/libcairo-gobject.so*
+	/usr/lib/libcairo-gobject.so* \
+	/usr/lib/python3*/lib-dynload/_hashlib*.so \
+	/usr/lib/python3*/site-packages/cryptography/hazmat/bindings/_rust.abi3.so
 
 "$QUICK_SHARUN" --make-appimage
 

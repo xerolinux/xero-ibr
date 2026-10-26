@@ -72,6 +72,52 @@ def seed_backups(root: Path):
         make_backup(root, IPAD, "Studio iPad", "iPad16,5", "26.0", when, 12_000_000_000)
         create_snapshot(root, IPAD, when.strftime("%Y%m%d-%H%M%S"))
     make_backup(root, OLD, "Old iPhone 11", "iPhone12,1", "18.6.2", now - timedelta(days=120), 8_000_000_000)
+    make_browsable(root / OLD)
+
+
+BROWSABLE = [
+    ("CameraRollDomain", "Media/DCIM/100APPLE/IMG_0001.PNG"),
+    ("CameraRollDomain", "Media/DCIM/100APPLE/IMG_0002.PNG"),
+    ("CameraRollDomain", "Media/DCIM/100APPLE/IMG_0003.PNG"),
+    ("HomeDomain", "Library/SMS/sms.db"),
+    ("HomeDomain", "Library/Notes/notes.sqlite"),
+    ("MediaDomain", "Media/Recordings/Voice Memo.m4a"),
+    ("AppDomain-com.apple.mobilenotes", "Documents/Shopping list.txt"),
+    ("AppDomain-org.videolan.vlc-ios", "Documents/Lecture.txt"),
+    ("AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
+    ("KeychainDomain", "keychain-backup.plist"),
+    ("WirelessDomain", "Library/Preferences/com.apple.wifi.plist"),
+]
+
+
+def make_browsable(folder: Path):
+    """Gives the old iPhone's backup a real unencrypted manifest so the backup browser has content."""
+    import hashlib
+    import sqlite3
+    (folder / "Manifest.plist").write_bytes(plistlib.dumps({"IsEncrypted": False}))
+    info = plistlib.loads((folder / "Info.plist").read_bytes())
+    info["Applications"] = {
+        "com.apple.mobilenotes": {"iTunesMetadata": plistlib.dumps({"itemName": "Notes"})},
+        "org.videolan.vlc-ios": {"iTunesMetadata": plistlib.dumps({"itemName": "VLC"})}}
+    (folder / "Info.plist").write_bytes(plistlib.dumps(info))
+    db = sqlite3.connect(folder / "Manifest.db")
+    db.execute("DROP TABLE IF EXISTS Files")
+    db.execute("CREATE TABLE Files (fileID TEXT PRIMARY KEY, domain TEXT, relativePath TEXT, flags INTEGER, file BLOB)")
+    stamp = int(datetime(2026, 6, 14, 9, 30).timestamp())
+    for domain, relative in BROWSABLE:
+        file_id = hashlib.sha1(f"{domain}-{relative}".encode()).hexdigest()
+        target = folder / file_id[:2] / file_id
+        target.parent.mkdir(exist_ok=True)
+        if relative.endswith(".PNG"):
+            demo_photo(target)
+        else:
+            target.write_text("iBR demo file from a simulated backup.\n")
+        root = {"Size": target.stat().st_size, "LastModified": stamp, "$class": plistlib.UID(2)}
+        blob = plistlib.dumps({"$version": 100000, "$archiver": "NSKeyedArchiver", "$top": {"root": plistlib.UID(1)},
+                               "$objects": ["$null", root, {"$classname": "MBFile"}]}, fmt=plistlib.FMT_BINARY)
+        db.execute("INSERT INTO Files VALUES (?, ?, ?, 1, ?)", (file_id, domain, relative, blob))
+    db.commit()
+    db.close()
 
 
 def fake_info(udid, name, product, version, klass, total, available, battery, charging):
@@ -405,6 +451,9 @@ def main():
         win.open_files()
         GLib.timeout_add(300, lambda: win.files_view.open_path(path) and False)
 
+    def browse(win, udid):
+        win.open_backup(next(e for e in win.backups if e.udid == udid))
+
     def software(win):
         import ibr.ui.firmware_dialog as firmware_dialog
         from ibr.core.firmware import FirmwareTarget
@@ -440,6 +489,10 @@ def main():
         ("15d-dfu", scene("dfu"), None),
         ("16-preview", lambda w: (close_dialog(w), files(w)), None),
         ("17-preview-open", lambda w: w.files_view._preview(w.files_view._store.get_item(0)), "preview"),
+        ("18-backup-browse", lambda w: (w.close_files(), browse(w, OLD)), None),
+        ("19-backup-photos", lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), None),
+        ("20-backup-apps", lambda w: w.backup_view.open_path(("Apps",)), None),
+        ("21-backup-locked", lambda w: browse(w, PHONE), None),
     ]
 
     def run_steps(index=0):

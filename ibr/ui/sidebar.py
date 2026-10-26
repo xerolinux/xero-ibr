@@ -29,6 +29,7 @@ class Sidebar(Gtk.Box):
     }
 
     HISTORY = 3
+    _browsing: Path | None = None
 
     def __init__(self, size_of):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -50,7 +51,8 @@ class Sidebar(Gtk.Box):
         home = str(Path.home())
         self._path.set_label("~" + path[len(home):] if path == home or path.startswith(home + "/") else path)
 
-    def update(self, devices: list[SidebarDevice], selected: str | None):
+    def update(self, devices: list[SidebarDevice], selected: str | None, browsing: Path | None = None):
+        self._browsing = browsing
         clear(self._list)
         if not devices:
             empty = label("No devices yet", "empty-box", xalign=0.5)
@@ -102,7 +104,9 @@ class Sidebar(Gtk.Box):
         row = Gtk.Button()
         row.add_css_class("flat")
         row.add_css_class("backup-row")
-        row.set_tooltip_text("Restore this backup")
+        row.set_tooltip_text("Browse this backup")
+        if entry.path == self._browsing:
+            row.add_css_class("active")
         content = hbox(8)
         when = format_date(entry.local_date) if entry.local_date else "Unknown date"
         content.append(self._expand(label(when)))

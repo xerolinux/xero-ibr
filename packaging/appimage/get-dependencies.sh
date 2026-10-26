@@ -26,6 +26,7 @@ pacman -Syu --noconfirm --needed \
 	pkgconf \
 	python \
 	python-cairo \
+	python-cryptography \
 	python-build \
 	python-gobject \
 	python-installer \

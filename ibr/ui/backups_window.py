@@ -62,6 +62,11 @@ class BackupsWindow(Dialog):
             details.append("Incomplete")
         text.append(label(" · ".join(details), "row-sub"))
         row.append(text)
+        browse = button("Browse", "system-search-symbolic", "outline", tooltip="Browse the files in this backup")
+        browse.set_valign(Gtk.Align.CENTER)
+        browse.set_sensitive(not self._window.operation_active)
+        browse.connect("clicked", lambda *_: self._browse(entry))
+        row.append(browse)
         show = button("", "folder-open-symbolic", "flat", tooltip="Show in file manager")
         show.connect("clicked", lambda *_: self._show(str(entry.path)))
         row.append(show)
@@ -70,6 +75,10 @@ class BackupsWindow(Dialog):
         delete.connect("clicked", lambda *_: self._delete(entry))
         row.append(delete)
         return row
+
+    def _browse(self, entry):
+        self.close()
+        self._window.open_backup(entry)
 
     def _show(self, path: str):
         Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(self, None, None)

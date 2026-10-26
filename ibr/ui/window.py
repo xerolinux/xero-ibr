@@ -26,6 +26,7 @@ from ..services import updater
 from ..services.homescreen import fetch_home
 from ..services.runner import in_thread, missing_tools, run
 from .about_window import AboutWindow
+from .backup_view import BackupView
 from .backups_window import BackupsWindow
 from .device_view import DeviceView
 from .dialog import alert, confirm
@@ -133,6 +134,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.files_view.connect("close", lambda *_: self.close_files())
         self._stack.add_named(self.files_view, "files")
         self._files_open = False
+        self.backup_view = BackupView(self)
+        self.backup_view.connect("close", lambda *_: self.close_backup())
+        self.backup_view.connect("restore", lambda _v, entry: self._restore_browsed(entry))
+        self._stack.add_named(self.backup_view, "backup")
+        self._browsing: BackupEntry | None = None
         body.append(self._stack)
         root.append(body)
         root.append(self._build_footer())
@@ -260,6 +266,9 @@ class MainWindow(Gtk.ApplicationWindow):
 
         def loaded(entries):
             self.backups = entries
+            if self._browsing and all(e.path != self._browsing.path for e in entries):
+                self._browsing = None
+                self.backup_view.release()
             self.refresh_ui()
             if then:
                 then()
@@ -307,6 +316,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._scan.set_sensitive(not scanning and not self._op_active)
 
     def _on_device_selected(self, sidebar, udid: str):
+        self.close_backup()
         if udid in self.monitor.devices or (udid.startswith(RECOVERY_PREFIX)
                                             and udid[len(RECOVERY_PREFIX):] in self.monitor.recovery):
             self.current = udid
@@ -315,8 +325,27 @@ class MainWindow(Gtk.ApplicationWindow):
             BackupsWindow(self, udid).present()
 
     def _on_backup_activated(self, sidebar, entry: BackupEntry):
+        self.open_backup(entry)
+
+    def open_backup(self, entry: BackupEntry):
+        if self._op_active:
+            alert(self, "Finish the current task first", "Backups can be browsed once the backup, restore or "
+                  "transfer in progress has finished.")
+            return
+        if self.backup_view.show(entry):
+            self._browsing = entry
+            self.refresh_ui()
+
+    def close_backup(self):
+        if self._browsing:
+            self._browsing = None
+            self.backup_view.release()
+            self.refresh_ui()
+
+    def _restore_browsed(self, entry: BackupEntry):
         if not self.open_restore(entry):
-            BackupsWindow(self, entry.udid).present()
+            alert(self, "Connect a device to restore", "Plug in the iPhone or iPad to restore, unlock it and tap "
+                  "Trust, then select this backup again.")
 
     def _sidebar_devices(self) -> list[SidebarDevice]:
         items = []
@@ -360,7 +389,8 @@ class MainWindow(Gtk.ApplicationWindow):
         return items
 
     def refresh_ui(self):
-        self.sidebar.update(self._sidebar_devices(), self.current)
+        self.sidebar.update(self._sidebar_devices(), None if self._browsing else self.current,
+                            self._browsing.path if self._browsing else None)
         ok = self.monitor.usbmuxd_ok
         self._dot.set_css_classes(["status-dot", "ok"] if ok else ["status-dot"])
         state = {True: "usbmuxd connected", False: "usbmuxd idle", None: "Checking"}[ok]
@@ -373,6 +403,9 @@ class MainWindow(Gtk.ApplicationWindow):
                                "Install libimobiledevice and usbmuxd, then restart iBR.",
                                [(tool, "fail") for tool in self._missing], animating=False)
             self._stack.set_visible_child_name("scan")
+            return
+        if self._browsing:
+            self._stack.set_visible_child_name("backup")
             return
         recovery = self.current_recovery()
         if recovery is not None:
@@ -405,7 +438,8 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.scanning.show("usbmuxd is not running",
                                    "A device is plugged in but the usbmuxd service is not answering. Start it, or "
                                    "unplug the device and connect it again.",
-                                   [("usbmuxd stopped", "fail"), ("Plugged in", "done"), ("Unlock and tap Trust", "todo")],
+                                   [("usbmuxd stopped", "fail"), ("Plugged in", "done"),
+                                    ("Unlock and tap Trust", "todo")],
                                    action=("Start usbmuxd", lambda: self._start_usbmuxd(binary)))
                 self._stack.set_visible_child_name("scan")
                 return
@@ -434,6 +468,7 @@ class MainWindow(Gtk.ApplicationWindow):
         return self._op_active
 
     def begin_operation(self, reason: str):
+        self.close_backup()
         self._op_active = True
         self.monitor.paused = True
         self._scan.set_sensitive(False)
@@ -516,7 +551,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.device_view.progress.handle(event)
         if isinstance(event, Percent):
             self._busy_percent = event.value
-            self.sidebar.update(self._sidebar_devices(), self.current)
+            self.sidebar.update(self._sidebar_devices(), None if self._browsing else self.current,
+                                self._browsing.path if self._browsing else None)
         elif isinstance(event, Copied):
             self._copied.append(event.path)
 

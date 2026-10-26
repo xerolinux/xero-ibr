@@ -88,6 +88,10 @@ def main():
         from ibr.ui.firmware_dialog import FirmwareDialog
         FirmwareDialog(win, FirmwareTarget.from_device(win.current_device_info())).present()
 
+    def browse(win, udid):
+        win.close_files()
+        win.open_backup(next(e for e in win.backups if e.udid == udid))
+
     from ibr.ui.firmware_dialog import FirmwareDialog
     from ibr.ui.preview_dialog import PreviewDialog
 
@@ -102,7 +106,11 @@ def main():
         (lambda w: (w.open_files(), GLib.timeout_add(300, lambda: w.files_view.open_path("/DCIM/100APPLE")
                                                        and False)), 1600, window_frame(1.8)),
         (preview_photo, 1600, dialog_frame(PreviewDialog, 2.0)),
-        (lambda w: (w.close_files(), scene("older-ios")), 1200, window_frame(1.4)),
+        (lambda w: browse(w, demo.OLD), 1500, window_frame(1.8)),
+        (lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), 900, window_frame(1.8)),
+        (lambda w: w.backup_view.open_path(("Apps",)), 900, window_frame(1.6)),
+        (lambda w: browse(w, demo.PHONE), 900, window_frame(1.8)),
+        (lambda w: (w.close_backup(), scene("older-ios")), 1200, window_frame(1.4)),
         (firmware, 1200, dialog_frame(FirmwareDialog, 2.2)),
         (lambda w: scene("recovery"), 1500, window_frame(2.0)),
         (lambda w: scene("phone"), 1500, window_frame(1.2)),
