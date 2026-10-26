@@ -3,6 +3,8 @@
 Usage: python tools/demo.py [--shots OUTPUT_DIR] [--theme dark|light]
 """
 import argparse
+import io
+import math
 import os
 import plistlib
 import shlex
@@ -23,7 +25,7 @@ args.add_argument("--scene", default="phone",
 opts = args.parse_args()
 
 sandbox = Path(tempfile.mkdtemp(prefix="ibr-demo-"))
-for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
     os.environ[var] = str(sandbox / var.lower())
 
 import gi  # noqa: E402
@@ -82,12 +84,47 @@ BROWSABLE = [
     ("HomeDomain", "Library/SMS/sms.db"),
     ("HomeDomain", "Library/Notes/notes.sqlite"),
     ("MediaDomain", "Media/Recordings/Voice Memo.m4a"),
-    ("AppDomain-com.apple.mobilenotes", "Documents/Shopping list.txt"),
-    ("AppDomain-org.videolan.vlc-ios", "Documents/Lecture.txt"),
+    ("AppDomain-com.apple.mobilesafari", "Library/Safari/Bookmarks.db"),
     ("AppDomainGroup-group.com.apple.notes", "NoteStore.sqlite"),
+    ("AppDomain-org.videolan.vlc-ios", "Documents/Lecture.txt"),
+    ("AppDomainGroup-group.org.videolan.vlc-ios", "Library/Preferences/settings.plist"),
+    ("AppDomain-net.whatsapp.WhatsApp", "Documents/ChatStorage.sqlite"),
+    ("AppDomainGroup-group.net.whatsapp.WhatsApp.shared", "Message/Media/photo.txt"),
+    ("AppDomainPlugin-net.whatsapp.WhatsApp.ShareExtension", "Library/Preferences/share.plist"),
+    ("AppDomain-com.8bit.bitwarden", "Library/Preferences/settings.plist"),
+    ("AppDomainPlugin-com.8bit.bitwarden.autofill", "Library/Preferences/autofill.plist"),
+    ("AppDomain-com.spotify.client", "Library/Preferences/com.spotify.client.plist"),
+    ("AppDomain-com.apple.AAUIViewService", "Library/Preferences/state.plist"),
     ("KeychainDomain", "keychain-backup.plist"),
     ("WirelessDomain", "Library/Preferences/com.apple.wifi.plist"),
 ]
+
+
+DEMO_APPS = [("org.videolan.vlc-ios", "VLC media player", "#f28a1e"), ("net.whatsapp.WhatsApp", "WhatsApp", "#25d366"),
+             ("com.8bit.bitwarden", "Bitwarden Password Manager", "#175ddc"),
+             ("com.spotify.client", "Spotify: Music and Podcasts", "#1db954")]
+
+
+def demo_icon(name: str, colour: str) -> bytes:
+    import cairo
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 128, 128)
+    cr = cairo.Context(surface)
+    red, green, blue = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    cr.new_sub_path()
+    for x, y, start in ((100, 28, -0.5), (100, 100, 0), (28, 100, 0.5), (28, 28, 1)):
+        cr.arc(x, y, 28, start * math.pi, (start + 0.5) * math.pi)
+    cr.close_path()
+    cr.set_source_rgb(red, green, blue)
+    cr.fill()
+    cr.set_source_rgb(1, 1, 1)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(64)
+    extents = cr.text_extents(name[0])
+    cr.move_to(64 - extents.width / 2 - extents.x_bearing, 64 - extents.height / 2 - extents.y_bearing)
+    cr.show_text(name[0])
+    out = io.BytesIO()
+    surface.write_to_png(out)
+    return out.getvalue()
 
 
 def make_browsable(folder: Path):
@@ -96,10 +133,14 @@ def make_browsable(folder: Path):
     import sqlite3
     (folder / "Manifest.plist").write_bytes(plistlib.dumps({"IsEncrypted": False}))
     info = plistlib.loads((folder / "Info.plist").read_bytes())
-    info["Applications"] = {
-        "com.apple.mobilenotes": {"iTunesMetadata": plistlib.dumps({"itemName": "Notes"})},
-        "org.videolan.vlc-ios": {"iTunesMetadata": plistlib.dumps({"itemName": "VLC"})}}
+    info["Applications"] = {bid: {"iTunesMetadata": plistlib.dumps({"itemName": name}),
+                                  "PlaceholderIcon": demo_icon(name, colour)}
+                            for bid, name, colour in DEMO_APPS}
     (folder / "Info.plist").write_bytes(plistlib.dumps(info))
+    from ibr.core.app_catalog import AppMeta, catalog_file, save_merged
+    save_merged(catalog_file(folder.name), {
+        "com.apple.mobilenotes": AppMeta("Notes", demo_icon("Notes", "#f5c02c")),
+        "com.apple.mobilesafari": AppMeta("Safari", demo_icon("Safari", "#1f8cf0"))})
     db = sqlite3.connect(folder / "Manifest.db")
     db.execute("DROP TABLE IF EXISTS Files")
     db.execute("CREATE TABLE Files (fileID TEXT PRIMARY KEY, domain TEXT, relativePath TEXT, flags INTEGER, file BLOB)")
@@ -247,8 +288,6 @@ class FakeAfc:
 
 
 def demo_photo(path: Path):
-    import math
-
     import cairo
     surface = cairo.ImageSurface(cairo.FORMAT_RGB24, 1600, 1200)
     cr = cairo.Context(surface)
@@ -492,6 +531,7 @@ def main():
         ("18-backup-browse", lambda w: (w.close_files(), browse(w, OLD)), None),
         ("19-backup-photos", lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), None),
         ("20-backup-apps", lambda w: w.backup_view.open_path(("Apps",)), None),
+        ("20b-backup-app", lambda w: w.backup_view.open_path(("Apps", "WhatsApp")), None),
         ("21-backup-locked", lambda w: browse(w, PHONE), None),
     ]
 

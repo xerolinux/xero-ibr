@@ -18,6 +18,11 @@ def load_library(*names: str) -> ctypes.CDLL:
 
 def list_sharing_apps(udid: str) -> list[SharingApp]:
     """Blocking: asks installation_proxy for user apps that enable iTunes-style File Sharing."""
+    return sharing_apps(browse_apps(udid, "User"))
+
+
+def browse_apps(udid: str, app_type: str) -> bytes:
+    """Blocking: installation_proxy's app list ("User" or "Any") as plist XML."""
     imd = load_library("libimobiledevice-1.0.so.6", "libimobiledevice-1.0.so")
     plist = load_library("libplist-2.0.so.4", "libplist-2.0.so")
     for name, args in (
@@ -42,9 +47,10 @@ def list_sharing_apps(udid: str) -> list[SharingApp]:
     device, client, result = _VOID_P(), _VOID_P(), _VOID_P()
     options = plist.plist_new_dict()
     try:
-        plist.plist_dict_set_item(options, b"ApplicationType", plist.plist_new_string(b"User"))
+        plist.plist_dict_set_item(options, b"ApplicationType", plist.plist_new_string(app_type.encode()))
         attributes = plist.plist_new_array()
-        for key in (b"CFBundleIdentifier", b"CFBundleDisplayName", b"CFBundleName", b"UIFileSharingEnabled"):
+        for key in (b"CFBundleIdentifier", b"CFBundleDisplayName", b"CFBundleName", b"UIFileSharingEnabled",
+                    b"SBAppTags"):
             plist.plist_array_append_item(attributes, plist.plist_new_string(key))
         plist.plist_dict_set_item(options, b"ReturnAttributes", attributes)
         if imd.idevice_new(ctypes.byref(device), udid.encode()) != 0:
@@ -56,10 +62,9 @@ def list_sharing_apps(udid: str) -> list[SharingApp]:
         xml, length = _VOID_P(), ctypes.c_uint32()
         plist.plist_to_xml(result, ctypes.byref(xml), ctypes.byref(length))
         try:
-            data = ctypes.string_at(xml, length.value)
+            return ctypes.string_at(xml, length.value)
         finally:
             plist.plist_mem_free(xml)
-        return sharing_apps(data)
     finally:
         if result:
             plist.plist_free(result)

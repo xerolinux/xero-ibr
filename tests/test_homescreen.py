@@ -36,3 +36,12 @@ def test_folders_kept_widgets_skipped():
 def test_bad_data():
     home = parse_icon_state(b"nope")
     assert home.dock == [] and home.apps == []
+
+
+def test_names_cover_every_app_including_folders():
+    folder = {"displayName": "Utilities", "listType": "folder",
+              "iconLists": [[app("Calculator", "com.apple.calculator")], [app("‎Compass", "com.apple.compass")]]}
+    home = parse_icon_state(state([app("Phone", "com.apple.mobilephone")], [folder],
+                                  [app("Notes", "com.apple.mobilenotes")]))
+    assert home.names == {"com.apple.mobilephone": "Phone", "com.apple.calculator": "Calculator",
+                          "com.apple.compass": "Compass", "com.apple.mobilenotes": "Notes"}

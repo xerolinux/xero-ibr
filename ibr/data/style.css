@@ -471,3 +471,10 @@ window.ibr headerbar windowcontrols button,
 window.ibr headerbar windowcontrols button:backdrop { color: var(--fg2); opacity: 1; }
 window.ibr headerbar windowcontrols button image,
 window.ibr headerbar windowcontrols button:backdrop image { color: var(--fg2); opacity: 1; -gtk-icon-shadow: none; }
+window.ibr flowbox.wrap-row > flowboxchild { padding: 0; background: none; }
+window.ibr .backup-tree listview > row { min-height: 28px; padding: 0 6px; border-radius: 6px; }
+window.ibr .backup-tree listview > row:hover { background: var(--card-hover); }
+window.ibr .backup-tree listview > row:selected { background: var(--card); box-shadow: inset 2px 0 0 var(--primary); }
+window.ibr .backup-tree treeexpander.tree-header { margin-top: 10px; }
+window.ibr .backup-tree label.tree-header { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
+window.ibr button.tree-back { padding: 6px 8px; }

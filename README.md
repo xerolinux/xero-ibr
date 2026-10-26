@@ -2,7 +2,7 @@
 
 ![iBR tour: scanning, a backup in progress, the file browser, photo preview, browsing a backup (encrypted ones too), firmware update and recovery mode](docs/media/ibr-demo.gif)
 
-**iBackup/Restore** is the **XeroLinux** app for backing up and restoring iPhone and iPad on Linux, built with Python and GTK4. It makes full or encrypted backups with real progress from the device, keeps the last few backups per device, restores any compatible one, lets you browse a backup's files (encrypted ones too) and save them out, browses photos and app documents with drag and drop, updates or restores iOS from an `.ipsw` you download, and detects devices stuck in Recovery or DFU mode. Supports iPhone and iPad with iOS/iPadOS 15 and newer. Some features might not be supported due to licensing.
+**iBackup/Restore** is the **XeroLinux** app for backing up and restoring iPhone and iPad on Linux, built with Python and GTK4. It makes full or encrypted backups with real progress from the device, keeps the last few backups per device, restores any compatible one, lets you browse a backup's files (encrypted ones too) by app, with real app icons, and save them out, browses photos and app documents with drag and drop, updates or restores iOS from an `.ipsw` you download, and detects devices stuck in Recovery or DFU mode. Supports iPhone and iPad with iOS/iPadOS 15 and newer. Some features might not be supported due to licensing.
 
 ## Install
 

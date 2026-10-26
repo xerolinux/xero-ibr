@@ -11,7 +11,7 @@ from ..services.afc import Afc, list_sharing_apps
 from ..services.runner import in_thread
 from .dialog import confirm
 from .preview_dialog import PreviewDialog
-from .widgets import button, clear, hbox, label, vbox
+from .widgets import button, clear, crumb_bar, hbox, label, vbox
 
 MEDIA = "Media"
 
@@ -127,8 +127,8 @@ class FilesView(Gtk.Box):
         for widget in self._actions:
             toolbar.append(widget)
         main.append(toolbar)
-        self._crumbs = hbox(2)
-        main.append(self._crumbs)
+        crumbs, self._crumbs = crumb_bar()
+        main.append(crumbs)
 
         self._store = Gio.ListStore(item_type=EntryItem)
         self._selection = Gtk.MultiSelection(model=self._store)

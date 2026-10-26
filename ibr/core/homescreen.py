@@ -13,12 +13,28 @@ class HomeIcon:
 class HomeScreen:
     dock: list[HomeIcon] = field(default_factory=list)
     apps: list[HomeIcon] = field(default_factory=list)
+    names: dict[str, str] = field(default_factory=dict)
+
+
+def _clean(name) -> str:
+    return str(name).strip("‎‏")
+
+
+def _names(items, found: dict[str, str]):
+    for item in items:
+        if isinstance(item, dict):
+            name = _clean(item.get("displayName", ""))
+            if item.get("bundleIdentifier") and name:
+                found[str(item["bundleIdentifier"])] = name
+            for page in item.get("iconLists", []):
+                _names(page if isinstance(page, list) else [], found)
+    return found
 
 
 def _icon(item) -> HomeIcon | None:
     if not isinstance(item, dict):
         return None
-    name = str(item.get("displayName", "")).strip("‎‏")
+    name = _clean(item.get("displayName", ""))
     if item.get("listType") == "folder":
         apps = [a.get("bundleIdentifier") for page in item.get("iconLists", []) for a in page
                 if isinstance(a, dict) and a.get("bundleIdentifier")]
@@ -37,4 +53,5 @@ def parse_icon_state(data: bytes) -> HomeScreen:
     if not isinstance(pages, list):
         return HomeScreen()
     icons = [[icon for icon in map(_icon, page) if icon] if isinstance(page, list) else [] for page in pages]
-    return HomeScreen(icons[0] if icons else [], [icon for page in icons[1:] for icon in page])
+    names = _names((item for page in pages if isinstance(page, list) for item in page), {})
+    return HomeScreen(icons[0] if icons else [], [icon for page in icons[1:] for icon in page], names)

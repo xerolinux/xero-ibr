@@ -23,7 +23,7 @@ from ..services import keyring
 from ..services.devices import Device, DeviceMonitor
 from ..services.operation import Operation
 from ..services import updater
-from ..services.homescreen import fetch_home
+from ..services.homescreen import fetch_home, refresh_app_catalog
 from ..services.runner import in_thread, missing_tools, run
 from .about_window import AboutWindow
 from .backup_view import BackupView
@@ -94,6 +94,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._mux_down_since = 0.0
         self._copied: list[str] = []
         self._homes: dict = {}
+        self._catalogued: set[str] = set()
         self._missing = missing_tools()
 
         self._build_header()
@@ -104,12 +105,15 @@ class MainWindow(Gtk.ApplicationWindow):
         self.sidebar.set_location(self.settings.backup_dir)
         self.sidebar.connect("device-selected", self._on_device_selected)
         self.sidebar.connect("backup-activated", self._on_backup_activated)
-        self._sidebar_revealer = Gtk.Revealer(child=self.sidebar, reveal_child=True, transition_duration=150,
+        self._side = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hhomogeneous=False)
+        self._side.add_named(self.sidebar, "devices")
+        self._sidebar_revealer = Gtk.Revealer(child=self._side, reveal_child=True, transition_duration=150,
                                               transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT,
                                               hexpand=False)
         body.append(self._sidebar_revealer)
 
-        self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hexpand=True)
+        self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hexpand=True,
+                                hhomogeneous=False, vhomogeneous=False)
         self.scanning = ScanningView()
         self._stack.add_named(self.scanning, "scan")
         self.device_view = DeviceView()
@@ -138,6 +142,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.backup_view.connect("close", lambda *_: self.close_backup())
         self.backup_view.connect("restore", lambda _v, entry: self._restore_browsed(entry))
         self._stack.add_named(self.backup_view, "backup")
+        self._side.add_named(self.backup_view.tree, "tree")
         self._browsing: BackupEntry | None = None
         body.append(self._stack)
         root.append(body)
@@ -302,6 +307,12 @@ class MainWindow(Gtk.ApplicationWindow):
         for udid in list(self._homes):
             if udid not in connected:
                 del self._homes[udid]
+        self._catalogued &= set(connected)
+        for udid, device in connected.items():
+            if device.state == "ready" and udid not in self._catalogued:
+                self._catalogued.add(udid)
+                in_thread(lambda u=udid: refresh_app_catalog(u),
+                          lambda saved, u=udid: saved and self.backup_view.relabel(u))
         if self.settings.auto_backup and not self._op_active:
             for udid, device in connected.items():
                 if device.state == "ready" and udid not in self._auto_done and is_supported(device.info.os_version):
@@ -397,6 +408,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._status.set_label(f"v{__version__} · {state}")
         self._status.set_tooltip_text("usbmuxd starts automatically when a device is plugged in." if ok is False
                                       else None)
+        self._side.set_visible_child_name("tree" if self._browsing else "devices")
 
         if self._missing:
             self.scanning.show("Required tools are missing",
@@ -781,7 +793,7 @@ class MainWindow(Gtk.ApplicationWindow):
         if enable:
             mode, title = "new", "Turn on encryption"
             text = ("Choose a password for encrypted backups. You need it to restore. "
-                    "If you forget it, the backups cannot be used.")
+                    "If you forget it, the backups cannot be restored or browsed.")
         else:
             mode, title = "current", "Turn off encryption"
             text = "Enter the current backup password to turn encryption off."

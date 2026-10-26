@@ -1,28 +1,63 @@
+import io
+import math
 import os
 import shutil
 import tempfile
+from functools import cache
 from pathlib import Path
 
-from gi.repository import Gio, GLib, GObject, Gtk
+import cairo
+from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from ..core.afc import icon_for, media_kind
+from ..core.app_catalog import APPLE_APPS, AppMeta, catalog_file, load_saved, save_merged
 from ..core.backup_browse import BackupReader, Node, PasswordNeeded, WrongPassword
 from ..core.backups import BackupEntry
 from ..core.fmt import format_date, format_size
 from ..services import keyring
 from ..services.runner import in_thread
+from ..services.store_icons import fetch_store_icons
+from .backup_tree import BackupTree
 from .preview_dialog import PreviewDialog
-from .widgets import button, clear, hbox, label, vbox
+from .widgets import button, clear, crumb_bar, hbox, label, vbox
 
 ROOT_LABEL = "Backup"
+APP_ICON = 22
+
+
+@cache
+def letter_tile(letter: str) -> Gdk.Texture:
+    """Stand-in for an app icon the backup does not have."""
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 64, 64)
+    cr = cairo.Context(surface)
+    cr.new_sub_path()
+    for x, y, start in ((50, 14, -0.5), (50, 50, 0), (14, 50, 0.5), (14, 14, 1)):
+        cr.arc(x, y, 14, start * math.pi, (start + 0.5) * math.pi)
+    cr.close_path()
+    cr.set_source_rgb(0.36, 0.37, 0.43)
+    cr.fill()
+    cr.set_source_rgb(0.93, 0.93, 0.96)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(30)
+    extents = cr.text_extents(letter)
+    cr.move_to(32 - extents.width / 2 - extents.x_bearing, 32 - extents.height / 2 - extents.y_bearing)
+    cr.show_text(letter)
+    out = io.BytesIO()
+    surface.write_to_png(out)
+    return Gdk.Texture.new_from_bytes(GLib.Bytes.new(out.getvalue()))
 
 
 class NodeItem(GObject.Object):
-    def __init__(self, node: Node, reader: BackupReader):
+    def __init__(self, node: Node, reader: BackupReader, icon_for):
         super().__init__()
         self.node = node
         self._reader = reader
+        self._icon_for = icon_for
         self._details = None
+
+    @property
+    def icon(self) -> Gdk.Texture | None:
+        return self._icon_for(self.node)
 
     @property
     def details(self):
@@ -42,13 +77,22 @@ class BackupView(Gtk.Box):
         self._window = window
         self.entry: BackupEntry | None = None
         self._reader: BackupReader | None = None
+        self._icons: dict[str, Gdk.Texture | None] = {}
         self._path: tuple[str, ...] = ()
+        self._heading = ("", "")
+        self._asked: set[str] = set()
         self._temp: Path | None = None
         self.busy = False
+        self.tree = BackupTree(self._icon_for)
+        self.tree.connect("open-path", lambda _t, path: self.open_path(path))
+        self.tree.connect("back", lambda *_: self.emit("close"))
         for side, value in (("top", 14), ("bottom", 12), ("start", 18), ("end", 18)):
             getattr(self, f"set_margin_{side}")(value)
 
         top = hbox(8)
+        self._app_icon = Gtk.Image(pixel_size=36, visible=False)
+        self._app_icon.set_valign(Gtk.Align.CENTER)
+        top.append(self._app_icon)
         titles = vbox(2)
         titles.set_hexpand(True)
         self._title = label("", "h3", ellipsize=True)
@@ -72,8 +116,8 @@ class BackupView(Gtk.Box):
         self.append(top)
         path_row = hbox(6)
         path_row.append(self._up)
-        self._crumbs = hbox(2)
-        path_row.append(self._crumbs)
+        crumbs, self._crumbs = crumb_bar()
+        path_row.append(crumbs)
         self.append(path_row)
 
         self._pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
@@ -165,13 +209,19 @@ class BackupView(Gtk.Box):
     @staticmethod
     def _setup_name(cell):
         row = hbox(10)
-        row.append(Gtk.Image())
+        row.append(Gtk.Image(width_request=APP_ICON))
         row.append(label("", ellipsize=True))
         cell.set_child(row)
 
     @staticmethod
     def _bind_name(item: NodeItem, row: Gtk.Box):
-        row.get_first_child().set_from_icon_name(icon_for(item.node.name, item.node.is_dir))
+        image, icon = row.get_first_child(), item.icon
+        if icon:
+            image.set_from_paintable(icon)
+            image.set_pixel_size(APP_ICON)
+        else:
+            image.set_from_icon_name(icon_for(item.node.name, item.node.is_dir))
+            image.set_pixel_size(-1)
         row.get_last_child().set_label(item.node.name)
 
     @staticmethod
@@ -181,6 +231,17 @@ class BackupView(Gtk.Box):
             return f"{count} item" if count == 1 else f"{count} items"
         return format_size(item.details.size) if item.details else ""
 
+    def _icon_for(self, node: Node) -> Gdk.Texture | None:
+        if not node.app or not self._reader:
+            return None
+        if node.app not in self._icons:
+            data = self._reader.icon(node)
+            try:
+                self._icons[node.app] = Gdk.Texture.new_from_bytes(GLib.Bytes.new(data)) if data else None
+            except GLib.Error:
+                self._icons[node.app] = None
+        return self._icons[node.app] or letter_tile((node.name[:1] or "?").upper())
+
     def show(self, entry: BackupEntry) -> bool:
         if self.busy:
             return False
@@ -189,13 +250,17 @@ class BackupView(Gtk.Box):
         self.release()
         self.entry = entry
         when = format_date(entry.local_date) if entry.local_date else "Unknown date"
-        self._title.set_label(f"{entry.device_name} · {when}")
+        self._heading = (f"{entry.device_name} · {when}", "")
+        self._title.set_label(self._heading[0])
+        self.tree.show_entry(entry.device_name, when)
         details = [entry.os_version or "Unknown version", "Encrypted" if entry.encrypted else "Not encrypted"]
         if entry.damaged:
             details.append("Damaged")
         elif not entry.complete:
             details.append("Incomplete")
-        self._subtitle.set_label(" · ".join(details))
+        self._heading = (self._heading[0], " · ".join(details))
+        self._subtitle.set_label(self._heading[1])
+        self._app_icon.set_visible(False)
         self._store.remove_all()
         clear(self._crumbs)
         self._set_actions(False)
@@ -209,12 +274,47 @@ class BackupView(Gtk.Box):
             self._open(None, remember=False, from_keyring=False)
         return True
 
+    def relabel(self, udid: str):
+        """Picks up app names and icons saved from the device while this backup is open."""
+        if not self._reader or self.busy or self.entry is None or self.entry.udid != udid:
+            return
+        self._reader.relabel(load_saved(catalog_file(udid)))
+        self._icons.clear()
+        self.tree.load(self._reader)
+        path = self._path
+        while path and self._reader.find(path) is None:
+            path = path[:-1]
+        self.open_path(path)
+
+    def _fill_icons(self):
+        """Apps the backup and device gave no icon for get their App Store artwork, saved for next time."""
+        entry, reader = self.entry, self._reader
+        missing = {n.app: APPLE_APPS.get(n.app, (n.name,))[0] for n in reader.listing(("Apps",))
+                   if n.app and n.app not in self._asked and reader.icon(n) is None}
+        if not missing:
+            return
+        self._asked.update(missing)
+
+        def work():
+            icons = fetch_store_icons(sorted(missing))
+            if not icons:
+                return False
+            try:
+                save_merged(catalog_file(entry.udid), {bid: AppMeta(missing[bid], icon) for bid, icon in icons.items()})
+            except OSError:
+                return False
+            return True
+
+        in_thread(work, lambda saved: saved and self.relabel(entry.udid))
+
     def release(self):
         if self.busy:
             return
         if self._reader:
             self._reader.close()
         self._reader = None
+        self._icons = {}
+        self.tree.clear()
         self.entry = None
         self._password.set_text("")
         if self._temp:
@@ -248,7 +348,7 @@ class BackupView(Gtk.Box):
 
         def work():
             try:
-                return BackupReader.open(entry.path, password), None
+                return BackupReader.open(entry.path, password, load_saved(catalog_file(entry.udid))), None
             except PasswordNeeded:
                 return None, ""
             except WrongPassword:
@@ -275,7 +375,9 @@ class BackupView(Gtk.Box):
             self._password.set_text("")
             self._reader = reader
             self._pages.set_visible_child_name("list")
+            self.tree.load(reader)
             self.open_path(())
+            self._fill_icons()
 
         in_thread(work, done)
 
@@ -284,11 +386,26 @@ class BackupView(Gtk.Box):
             return
         self._path = path
         nodes = self._reader.listing(path)
-        self._store.splice(0, self._store.get_n_items(), [NodeItem(node, self._reader) for node in nodes])
+        items = [NodeItem(node, self._reader, self._icon_for) for node in nodes]
+        self._store.splice(0, self._store.get_n_items(), items)
         self._empty.set_label("" if nodes else "This folder is empty.")
         self._render_crumbs()
         self._set_actions(not self.busy)
         self._status.set_label(f"{len(nodes)} items")
+        self._render_heading()
+        self.tree.reveal(path)
+
+    def _render_heading(self):
+        app = self._reader.find(self._path[:2]) if self._path[:1] == ("Apps",) and len(self._path) > 1 else None
+        icon = self._icon_for(app) if app and app.app else None
+        self._app_icon.set_visible(icon is not None)
+        if icon is not None:
+            self._app_icon.set_from_paintable(icon)
+            self._title.set_label(app.name)
+            self._subtitle.set_label(f"{app.app} · {self._heading[0]}")
+        else:
+            self._title.set_label(self._heading[0])
+            self._subtitle.set_label(self._heading[1])
 
     def _render_crumbs(self):
         clear(self._crumbs)

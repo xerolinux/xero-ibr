@@ -54,12 +54,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: AppImage-*
           merge-multiple: true
       - name: Checksums
         run: for f in *.AppImage; do sha256sum "$f" > "$f.sha256"; done
+      - name: Release notes
+        # Commits go straight to main, so the notes are their messages since the previous release.
+        run: |
+          previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          git log --no-merges --format='%B' ${previous:+"$previous"..}HEAD > notes.md
       - name: Publish release
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
@@ -67,6 +75,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: "iBackup/Restore ${{ needs.build.outputs.version }}"
           make_latest: true
+          body_path: notes.md
           generate_release_notes: true
           files: |
             *.AppImage

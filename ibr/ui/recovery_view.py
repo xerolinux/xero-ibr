@@ -3,7 +3,7 @@ from gi.repository import Gdk, GLib, GObject, Gtk
 from ..core.catalog import lookup
 from ..core.recovery import manual_command
 from .device_art import DeviceArt
-from .widgets import button, hbox, label, set_button_text, vbox
+from .widgets import button, label, set_button_text, vbox, wrap_row
 
 _EXPLAIN = {
     "Recovery": "It is waiting to be restored. Try Exit Recovery Mode first; if it comes back here, restore it "
@@ -42,25 +42,19 @@ class RecoveryView(Gtk.Box):
         self._access = vbox(10, "warning-box")
         self._access.append(label("iBR cannot talk to the device in this mode yet. Allow USB access once; it "
                                   "asks for your password and only covers Apple Recovery and DFU modes.", wrap=True))
-        access_actions = hbox(10)
         grant = button("Allow USB Access…", "changes-allow-symbolic", "primary")
         grant.connect("clicked", lambda *_: self.emit("grant-access"))
         copy = button("Copy terminal command", "edit-copy-symbolic", "outline")
         copy.connect("clicked", lambda *_: self.get_clipboard().set_content(
             Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(manual_command().encode()))))
-        access_actions.append(grant)
-        access_actions.append(copy)
-        self._access.append(access_actions)
+        self._access.append(wrap_row(grant, copy))
         column.append(self._access)
 
-        actions = hbox(10)
         self._exit = button("Exit Recovery Mode", "system-reboot-symbolic", "outline", "big")
         self._exit.connect("clicked", lambda *_: self.emit("exit-recovery"))
         self._restore = button("Update or Restore iOS", "software-update-available-symbolic", "primary", "big")
         self._restore.connect("clicked", lambda *_: self.emit("restore"))
-        actions.append(self._exit)
-        actions.append(self._restore)
-        column.append(actions)
+        column.append(wrap_row(self._exit, self._restore))
         self._banner = label("", "banner", wrap=True)
         self._banner.set_visible(False)
         column.append(self._banner)

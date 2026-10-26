@@ -25,7 +25,7 @@ class PasswordDialog(Dialog):
 
         self._ack = None
         if self._new is not None:
-            warning = label("Write this password down. Without it, encrypted backups cannot be restored, "
+            warning = label("Write this password down. Without it, encrypted backups cannot be restored or browsed, "
                             "and nobody (including Apple) can recover it.", "warning-box", wrap=True)
             body.append(warning)
             self._ack = Gtk.CheckButton(label="I understand that losing this password means losing these backups")

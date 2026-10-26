@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.padding import PKCS7
 
 PASSWORD = "secret"
 MODIFIED = 1761400000
+ICON = b"\x89PNG fake icon"
 
 
 def _tlv(tag: bytes, value) -> bytes:
@@ -47,6 +48,9 @@ FILES = [
     ("AppDomainGroup-group.com.example", "shared.plist", 1, b"group"),
     ("KeychainDomain", "keychain-backup.plist", 1, b"keychain"),
     ("HomeDomain", "Library/link", 4, None),
+    ("AppDomainGroup-group.com.apple.notes", "notes.sqlite", 1, b"apple notes"),
+    ("AppDomainGroup-group.com.apple.FileProvider.LocalStorage", "File Provider Storage/Downloads/doc.pdf", 1,
+     b"pdf"),
 ]
 
 
@@ -91,6 +95,7 @@ def make_backup(folder: Path, encrypted: bool) -> Path:
     (folder / "Manifest.db").write_bytes(data)
     (folder / "Manifest.plist").write_bytes(plistlib.dumps(manifest))
     info = {"Device Name": "Test iPhone", "Last Backup Date": datetime(2026, 10, 25),
-            "Applications": {"com.example.notes": {"iTunesMetadata": plistlib.dumps({"itemName": "Notes Plus"})}}}
+            "Applications": {"com.example.notes": {"iTunesMetadata": plistlib.dumps({"itemName": "Notes Plus"}),
+                                                   "PlaceholderIcon": ICON}}}
     (folder / "Info.plist").write_bytes(plistlib.dumps(info))
     return folder

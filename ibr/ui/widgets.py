@@ -59,6 +59,25 @@ def hbox(spacing: int = 0, *classes: str) -> Gtk.Box:
     return box
 
 
+def crumb_bar() -> tuple[Gtk.ScrolledWindow, Gtk.Box]:
+    """A path row that scrolls instead of widening the window, kept scrolled to the deepest folder."""
+    box = hbox(2)
+    scroller = Gtk.ScrolledWindow(child=box, hexpand=True, vscrollbar_policy=Gtk.PolicyType.NEVER)
+    adjustment = scroller.get_hadjustment()
+    adjustment.connect("changed", lambda a: a.set_value(a.get_upper() - a.get_page_size()))
+    return scroller, box
+
+
+def wrap_row(*widgets: Gtk.Widget) -> Gtk.FlowBox:
+    """A button row that wraps onto a second line rather than widening the window."""
+    row = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=10, row_spacing=10,
+                      max_children_per_line=len(widgets), homogeneous=False)
+    row.add_css_class("wrap-row")
+    for widget in widgets:
+        row.append(widget)
+    return row
+
+
 def clear(box: Gtk.Box):
     while child := box.get_first_child():
         box.remove(child)

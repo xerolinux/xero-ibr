@@ -68,7 +68,8 @@ class DeviceView(Gtk.Box):
         self._identifiers = label("", "caption", wrap=True)
         idle.append(self._identifiers)
 
-        self._encrypt = Gtk.CheckButton(label="Encrypt local backup (keeps passwords, Health and Wi-Fi data)")
+        self._encrypt = Gtk.CheckButton(label="Encrypt local backup (keeps passwords, Health and Wi\u2011Fi data)")
+        self._encrypt.get_last_child().set_wrap(True)
         self._encrypt_handler = self._encrypt.connect("toggled", self._on_encrypt)
         idle.append(self._encrypt)
 
