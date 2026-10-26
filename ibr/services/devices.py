@@ -44,6 +44,8 @@ class DeviceMonitor(GObject.Object):
     }
 
     POLL_SECONDS = 2
+    # A tool that blocks on a vanished device would otherwise keep every later scan from running.
+    COMMAND_SECONDS = 20
 
     def __init__(self):
         super().__init__()
@@ -56,6 +58,9 @@ class DeviceMonitor(GObject.Object):
         self._rescan = False
         self._pending = 0
         self._timer = 0
+
+    def _run(self, argv: list[str], callback):
+        run(argv, callback, timeout=self.COMMAND_SECONDS)
 
     def set_polling(self, enabled: bool):
         if enabled and not self._timer:
@@ -76,7 +81,7 @@ class DeviceMonitor(GObject.Object):
         self._quiet = quiet
         if not quiet:
             self.emit("scanning", True)
-        run(["idevice_id", "-l"], lambda status, out, err: self._on_list(status, out, refresh))
+        self._run(["idevice_id", "-l"], lambda status, out, err: self._on_list(status, out, refresh))
 
     def _on_list(self, status: int, out: bytes, refresh: bool):
         self.usbmuxd_ok = status == 0
@@ -135,10 +140,17 @@ class DeviceMonitor(GObject.Object):
             device.error = "" if details else (err or out).decode(errors="replace").strip() or "No response"
             self.emit("changed")
 
-        run(["irecovery", "-q"] + (["-i", device.ecid] if device.ecid else []), answered)
+        self._run(["irecovery", "-q"] + (["-i", device.ecid] if device.ecid else []), answered)
+
+    def recheck(self, udid: str):
+        """Treat the device as unverified so the next scan validates it again."""
+        device = self.devices.get(udid)
+        if device:
+            device.state = "checking"
+            self.emit("changed")
 
     def exit_recovery(self, device: RecoveryDevice, callback):
-        run(["irecovery"] + (["-i", device.ecid] if device.ecid else []) + ["-n"],
+        self._run(["irecovery"] + (["-i", device.ecid] if device.ecid else []) + ["-n"],
             lambda status, out, err: callback(status == 0, (err or out).decode(errors="replace").strip()))
 
     def _finish_scan(self):
@@ -160,7 +172,7 @@ class DeviceMonitor(GObject.Object):
             if status == 0:
                 self._fetch(udid)
             else:
-                run(["idevicepair", "-u", udid, "pair"], paired)
+                self._run(["idevicepair", "-u", udid, "pair"], paired)
 
         def paired(status, out, err):
             if status == 0:
@@ -172,7 +184,7 @@ class DeviceMonitor(GObject.Object):
                 device.message = trust_message((out + err).decode(errors="replace"))
             self._step_done()
 
-        run(["idevicepair", "-u", udid, "validate"], validated)
+        self._run(["idevicepair", "-u", udid, "validate"], validated)
 
     def _fetch(self, udid: str):
         results: list[bytes | None] = []
@@ -180,7 +192,7 @@ class DeviceMonitor(GObject.Object):
         def next_domain():
             domain = _INFO_DOMAINS[len(results)]
             argv = ["ideviceinfo", "-u", udid, "-x"] + (["-q", domain] if domain else [])
-            run(argv, got)
+            self._run(argv, got)
 
         def got(status, out, err):
             results.append(out if status == 0 else None)

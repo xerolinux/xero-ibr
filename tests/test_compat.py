@@ -2,7 +2,7 @@ import plistlib
 from datetime import datetime
 
 from ibr.core.backups import scan_backups
-from ibr.core.compat import restore_problem
+from ibr.core.compat import backup_warning, restore_problem
 from ibr.core.deviceinfo import parse_device_info
 from test_backups import make_backup
 
@@ -56,3 +56,17 @@ def test_newer_os_detail_explains(tmp_path):
 def test_detail_none_when_ok(tmp_path):
     from ibr.core.compat import problem_detail
     assert problem_detail(entry(tmp_path), device()) is None
+
+
+def battery(level, charging):
+    return parse_device_info(plistlib.dumps({"UniqueDeviceID": "DEV", "DeviceName": "Phone",
+                                             "ProductType": "iPhone12,1", "ProductVersion": "26.0"}),
+                             plistlib.dumps({"BatteryCurrentCapacity": level, "BatteryIsCharging": charging}),
+                             None, None)
+
+
+def test_backup_warning_low_battery_not_charging():
+    assert "15%" in backup_warning(battery(15, False))
+    assert backup_warning(battery(15, True)) is None
+    assert backup_warning(battery(20, False)) is None
+    assert backup_warning(parse_device_info(plistlib.dumps({"ProductType": "iPhone12,1"}), None, None, None)) is None

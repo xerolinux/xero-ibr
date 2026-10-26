@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from ibr.core.backups import scan_backups
-from ibr.core.snapshots import create_snapshot, prune_snapshots
+from ibr.core.snapshots import DAMAGED_MARKER, create_snapshot, finish_backup, prune_snapshots
 from test_backups import make_backup
 
 
@@ -157,3 +157,26 @@ def test_mark_damaged_ignores_unshared_files(tmp_path):
     target.unlink()
     target.write_bytes(b"new")
     assert mark_damaged(tmp_path, "AAA", ["ab/abcdef"]) == []
+
+
+def _copied_over(tmp_path):
+    folder = live(tmp_path)
+    create_snapshot(tmp_path, "AAA", "20261020-090000")
+    with open(folder / "ab" / "abcdef", "r+b") as handle:
+        handle.write(b"new")
+    return tmp_path / "snapshots" / "AAA" / "20261020-090000"
+
+
+def test_failed_backup_still_marks_overwritten_snapshots(tmp_path):
+    stamp = _copied_over(tmp_path)
+    assert finish_backup(tmp_path, "AAA", ["ab/abcdef"], success=False, keep=3, stamp="20261021-090000")
+    assert (stamp / DAMAGED_MARKER).exists()
+    assert [p.name for p in (tmp_path / "snapshots" / "AAA").iterdir()] == ["20261020-090000"]
+
+
+def test_successful_backup_marks_then_snapshots(tmp_path):
+    stamp = _copied_over(tmp_path)
+    assert finish_backup(tmp_path, "AAA", ["ab/abcdef"], success=True, keep=3, stamp="20261021-090000")
+    assert (stamp / DAMAGED_MARKER).exists()
+    assert sorted(p.name for p in (tmp_path / "snapshots" / "AAA").iterdir()) == ["20261020-090000",
+                                                                                  "20261021-090000"]

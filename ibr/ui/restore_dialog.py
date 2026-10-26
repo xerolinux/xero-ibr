@@ -7,14 +7,14 @@ from ..core.deviceinfo import DeviceInfo
 from ..core.fmt import format_date
 from ..services import keyring
 from ..services.operation import Operation
-from .dialog import Dialog, alert, confirm
+from .dialog import PANEL, Dialog, alert, confirm
 from .progress_card import ProgressCard
 from .widgets import button, hbox, label, set_classes, vbox
 
 
 class RestoreDialog(Dialog):
     def __init__(self, window, device: DeviceInfo, entries: list[BackupEntry], preselect: BackupEntry | None):
-        super().__init__(window, f"Restore {device.name}", 900, 580)
+        super().__init__(window, f"Restore {device.name}", *PANEL)
         self._window = window
         self._device = device
         self._settings = window.settings

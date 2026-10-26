@@ -23,8 +23,8 @@ One thing cannot live inside an AppImage: **usbmuxd**, the system service that t
 
 | Distribution | Command |
 | --- | --- |
-| Arch, CachyOS, EndeavourOS, XeroLinux | `sudo pacman -S usbmuxd` |
-| Debian, Ubuntu, Mint, Pop!_OS | `sudo apt install usbmuxd` |
+| Arch, Artix, CachyOS, EndeavourOS, XeroLinux | `sudo pacman -S usbmuxd` |
+| Debian, Devuan, Ubuntu, Mint, Pop!_OS | `sudo apt install usbmuxd` |
 | Fedora, RHEL, Nobara | `sudo dnf install usbmuxd` |
 | openSUSE | `sudo zypper install usbmuxd` |
 | Void | `sudo xbps-install usbmuxd` |
@@ -32,12 +32,12 @@ One thing cannot live inside an AppImage: **usbmuxd**, the system service that t
 | Gentoo | `sudo emerge app-pda/usbmuxd` |
 | NixOS | add `services.usbmuxd.enable = true;` to your configuration |
 
-On systemd distributions usbmuxd starts by itself when a device is plugged in. On others, enable the usbmuxd service with your init system.
+usbmuxd normally starts by itself when a device is plugged in: through systemd, or on systems without it through usbmuxd's udev rule (Artix) or your init system's usbmuxd service. If a device is plugged in but usbmuxd is not answering, iBR offers a **Start usbmuxd** button.
 
 Optional:
 
 - **Remembering backup passwords** needs a Secret Service keyring (GNOME Keyring or KWallet). Most desktops already run one.
-- **Recovery and DFU mode** need USB access the first time. iBR asks for your password once and installs a narrow udev rule for you.
+- **Recovery and DFU mode** need USB access the first time. iBR asks for your password once and installs a narrow udev rule for you. The same rule keeps Apple devices out of USB power saving (TLP, powertop), which can drop long backups; install it any time from **Troubleshoot > Prevent USB Disconnects**. The Arch package installs it for you.
 
 ## License
 

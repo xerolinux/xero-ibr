@@ -1,7 +1,7 @@
 from gi.repository import Gdk, GLib, GObject, Gtk
 
 from ..core.catalog import lookup
-from ..core.recovery import UDEV_RULE, UDEV_RULE_PATH
+from ..core.recovery import manual_command
 from .device_art import DeviceArt
 from .widgets import button, hbox, label, set_button_text, vbox
 
@@ -12,8 +12,6 @@ _EXPLAIN = {
            "buttons until the Apple logo appears to leave DFU.",
     "WTF": "This is a low-level firmware mode. Restore it with an .ipsw.",
 }
-MANUAL_COMMAND = (f"echo '{UDEV_RULE.strip()}' | sudo tee {UDEV_RULE_PATH} && "
-                  "sudo udevadm control --reload-rules && sudo udevadm trigger")
 
 
 class RecoveryView(Gtk.Box):
@@ -49,7 +47,7 @@ class RecoveryView(Gtk.Box):
         grant.connect("clicked", lambda *_: self.emit("grant-access"))
         copy = button("Copy terminal command", "edit-copy-symbolic", "outline")
         copy.connect("clicked", lambda *_: self.get_clipboard().set_content(
-            Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(MANUAL_COMMAND.encode()))))
+            Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(manual_command().encode()))))
         access_actions.append(grant)
         access_actions.append(copy)
         self._access.append(access_actions)

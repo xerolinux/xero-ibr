@@ -157,6 +157,12 @@ class ProgressCard(Gtk.Box):
             return
         self._stat_values[2].set_label(format_eta(self._percent_meter.eta(100, self._percent_value)))
 
+    def waiting(self, text: str):
+        self._phase.set_label("Reconnecting")
+        self._copied.set_label(text)
+        self._percent.set_label("")
+        self._start_pulse()
+
     def finish(self, success: bool):
         self._stop_pulse()
         if success:

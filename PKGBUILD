@@ -52,5 +52,6 @@ package() {
   python -m installer --destdir="$pkgdir" dist/*.whl
   install -Dm644 data/com.techxero.ibr.desktop "$pkgdir/usr/share/applications/com.techxero.ibr.desktop"
   install -Dm644 ibr/data/icons/hicolor/scalable/apps/com.techxero.ibr.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/com.techxero.ibr.svg"
+  install -Dm644 data/99-ibr.rules "$pkgdir/usr/lib/udev/rules.d/99-ibr.rules"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

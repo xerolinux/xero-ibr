@@ -1,4 +1,5 @@
 import re
+import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,9 +16,35 @@ RECOVERY_PIDS = {
     "1881": "DFU",
     "f014": "DFU",
 }
+# Power tools such as TLP switch USB devices to autosuspend from their own RUN rule, which can drop a long
+# backup. RUN (not ATTR) from a late file is applied after theirs.
 UDEV_RULE = (f'SUBSYSTEM=="usb", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
-             f'ATTR{{idProduct}}=="{"|".join(RECOVERY_PIDS)}", TAG+="uaccess"\n')
-UDEV_RULE_PATH = "/etc/udev/rules.d/70-ibr-recovery.rules"
+             f'ATTR{{idProduct}}=="{"|".join(RECOVERY_PIDS)}", TAG+="uaccess"\n'
+             f'ACTION=="add", SUBSYSTEM=="usb", ENV{{DEVTYPE}}=="usb_device", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
+             f'TEST=="power/control", RUN+="/bin/sh -c \'echo on > /sys%p/power/control\'"\n')
+UDEV_RULE_PATH = "/etc/udev/rules.d/99-ibr.rules"
+OLD_UDEV_RULE_PATH = "/etc/udev/rules.d/70-ibr-recovery.rules"
+INSTALLED_RULE_PATHS = (Path(UDEV_RULE_PATH), Path("/usr/lib/udev/rules.d/99-ibr.rules"))
+
+
+def install_script() -> str:
+    """Root shell script that installs the rule, replaces the old one and applies it to connected devices."""
+    return (f"rm -f {OLD_UDEV_RULE_PATH} && printf '%s' {shlex.quote(UDEV_RULE)} > {UDEV_RULE_PATH} && "
+            "udevadm control --reload-rules && udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac")
+
+
+def manual_command() -> str:
+    return f"sudo sh -c {shlex.quote(install_script())}"
+
+
+def rule_installed(paths=INSTALLED_RULE_PATHS) -> bool:
+    for path in paths:
+        try:
+            if Path(path).read_text() == UDEV_RULE:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 @dataclass(frozen=True)
@@ -63,12 +90,13 @@ def parse_irecovery(text: str) -> dict:
 
 
 _INSTALL = (
-    ({"arch"}, "sudo pacman -S usbmuxd"),
+    ({"arch", "artix"}, "sudo pacman -S usbmuxd"),
     ({"debian", "ubuntu"}, "sudo apt install usbmuxd"),
     ({"fedora", "rhel", "centos"}, "sudo dnf install usbmuxd"),
     ({"opensuse", "suse"}, "sudo zypper install usbmuxd"),
     ({"void"}, "sudo xbps-install usbmuxd"),
     ({"alpine"}, "sudo apk add usbmuxd"),
+    ({"gentoo"}, "sudo emerge app-pda/usbmuxd"),
     ({"nixos"}, "services.usbmuxd.enable = true;"),
 )
 

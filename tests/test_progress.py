@@ -1,6 +1,8 @@
 from ibr.core.progress import (
     Bytes,
     Error,
+    connection_dropped,
+    explain_failure,
     Finished,
     Percent,
     Phase,
@@ -164,3 +166,17 @@ def test_aborted_is_failure():
 def test_copy_item_reported():
     from ibr.core.progress import Copied
     assert Copied("ab/abcdef") in feed_all("Copying 'aa/123' to 'ab/abcdef'\n")
+
+
+def test_explain_failure_connection_drop():
+    text = explain_failure("Could not receive from mobilebackup2 (-4)")
+    assert "connection" in text.lower() and "cable" in text.lower()
+    assert explain_failure("Could not receive from mobilebackup2 (-3)") == text
+    assert explain_failure("Backup Aborted.") == "Backup Aborted."
+
+
+def test_connection_dropped():
+    assert connection_dropped("Could not receive from mobilebackup2 (-4)")
+    assert connection_dropped("ERROR: Could not receive from mobilebackup2 (-3)")
+    assert not connection_dropped("Could not receive from mobilebackup2 (-5)")
+    assert not connection_dropped("Cancelled")

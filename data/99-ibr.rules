@@ -1,0 +1,2 @@
+SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", ATTR{idProduct}=="1222|1227|1280|1281|1282|1283|1881|f014", TAG+="uaccess"
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="05ac", TEST=="power/control", RUN+="/bin/sh -c 'echo on > /sys%p/power/control'"

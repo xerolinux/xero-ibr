@@ -36,3 +36,14 @@ def problem_detail(entry: BackupEntry, device: DeviceInfo) -> str | None:
         return ("A later backup overwrote part of this one, so it cannot be restored safely. "
                 "Choose a newer backup.")
     return "This backup did not finish, so it cannot be restored. Choose another backup or back up again."
+
+
+LOW_BATTERY = 20
+
+
+def backup_warning(device: DeviceInfo) -> str | None:
+    """A reason the device may drop off mid-backup, worth confirming before starting."""
+    if device.battery_level is not None and device.battery_level < LOW_BATTERY and device.charging is not True:
+        return (f"{device.name or 'The device'} is at {device.battery_level}% and not charging. A long backup can "
+                "drain it and the device may disconnect. Plug it into power first.")
+    return None

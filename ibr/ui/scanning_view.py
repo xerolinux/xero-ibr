@@ -2,7 +2,7 @@ import math
 
 from gi.repository import Gtk
 
-from .widgets import clear, hbox, label, vbox
+from .widgets import button, clear, hbox, label, vbox
 
 PRIMARY = (0x56 / 255, 0x57 / 255, 0xF5 / 255)
 
@@ -89,8 +89,19 @@ class ScanningView(Gtk.Box):
         self._chips = hbox(12)
         self._chips.set_halign(Gtk.Align.CENTER)
         self.append(self._chips)
+        self._action = button("", None, "primary")
+        self._action.set_halign(Gtk.Align.CENTER)
+        self._action.set_visible(False)
+        self._action.connect("clicked", lambda *_: self._on_action and self._on_action())
+        self._on_action = None
+        self.append(self._action)
 
-    def show(self, title: str, subtitle: str, chips: list[tuple[str, str]], animating: bool = True):
+    def show(self, title: str, subtitle: str, chips: list[tuple[str, str]], animating: bool = True,
+             action: tuple[str, object] | None = None):
+        self._action.set_visible(action is not None)
+        if action:
+            self._action.set_label(action[0])
+            self._on_action = action[1]
         self._title.set_label(title)
         self._subtitle.set_label(subtitle)
         self.radar.animating = animating

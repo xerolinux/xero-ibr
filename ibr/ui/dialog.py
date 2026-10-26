@@ -2,6 +2,10 @@ from gi.repository import Gdk, Gtk
 
 from .widgets import button, hbox, label, vbox
 
+# One size for every multi-step dialog so the window never jumps between steps or between dialogs;
+# their content scrolls instead.
+PANEL = (900, 640)
+
 
 class Dialog(Gtk.Window):
     def __init__(self, parent: Gtk.Window, title: str, width: int, height: int = -1):

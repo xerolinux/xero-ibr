@@ -2,6 +2,9 @@ import pytest
 
 from ibr.core.recovery import (
     UDEV_RULE,
+    UDEV_RULE_PATH,
+    install_script,
+    rule_installed,
     UsbRecovery,
     clean_transfers,
     parse_irecovery,
@@ -61,6 +64,9 @@ def test_parse_irecovery_empty():
     ('ID="fedora"\n', "sudo dnf install usbmuxd"),
     ('ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n', "sudo zypper install usbmuxd"),
     ('ID=void\n', "sudo xbps-install usbmuxd"),
+    ('ID=artix\n', "sudo pacman -S usbmuxd"),
+    ('ID=gentoo\n', "sudo emerge app-pda/usbmuxd"),
+    ('ID=devuan\nID_LIKE=debian\n', "sudo apt install usbmuxd"),
     ('ID=alpine\n', "sudo apk add usbmuxd"),
     ('ID=nixos\n', "services.usbmuxd.enable = true;"),
     ('ID=something\n', "Install the usbmuxd package from your distribution."),
@@ -88,3 +94,42 @@ def test_clean_transfers(tmp_path):
 
 def test_clean_transfers_missing_folder(tmp_path):
     clean_transfers(tmp_path / "nope")
+
+
+def test_udev_rule_keeps_apple_devices_out_of_usb_autosuspend():
+    power = [line for line in UDEV_RULE.splitlines() if "power/control" in line]
+    assert len(power) == 1
+    assert 'ATTR{idVendor}=="05ac"' in power[0] and 'ACTION=="add"' in power[0]
+    assert "echo on > /sys%p/power/control" in power[0]
+
+
+def test_udev_rule_runs_after_power_tools():
+    assert UDEV_RULE_PATH == "/etc/udev/rules.d/99-ibr.rules"
+
+
+def test_packaged_rule_matches():
+    from pathlib import Path
+    assert (Path(__file__).parent.parent / "data" / "99-ibr.rules").read_text() == UDEV_RULE
+
+
+def test_rule_installed(tmp_path):
+    etc, lib = tmp_path / "etc.rules", tmp_path / "lib.rules"
+    assert not rule_installed([etc, lib])
+    lib.write_text("old rule\n")
+    assert not rule_installed([etc, lib])
+    etc.write_text(UDEV_RULE)
+    assert rule_installed([etc, lib])
+
+
+def test_install_script_writes_rule_and_drops_old_file(tmp_path):
+    import subprocess
+    etc = tmp_path / "rules.d"
+    etc.mkdir()
+    (etc / "70-ibr-recovery.rules").write_text("old\n")
+    script = install_script().replace("/etc/udev/rules.d", str(etc))
+    script = script.split(" && udevadm")[0]
+    subprocess.run(["sh", "-c", script], check=True)
+    assert (etc / "99-ibr.rules").read_text() == UDEV_RULE
+    assert not (etc / "70-ibr-recovery.rules").exists()
+    assert install_script().endswith("udevadm control --reload-rules && udevadm trigger --subsystem-match=usb "
+                                     "--attr-match=idVendor=05ac")

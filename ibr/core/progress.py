@@ -66,6 +66,22 @@ _CANCELLED = "User has cancelled the backup process on the device."
 _UNITS = {"bytes": 1, "b": 1, "kb": 10**3, "mb": 10**6, "gb": 10**9, "tb": 10**12}
 
 
+_DROPPED = re.compile(r"mobilebackup2 \(-[34]\)")
+
+
+def connection_dropped(message: str) -> bool:
+    """mobilebackup2 mux (-3) or session (-4) errors: the USB link went away mid-transfer."""
+    return bool(_DROPPED.search(message))
+
+
+def explain_failure(message: str) -> str:
+    """Plain words for errors whose raw text means nothing to people."""
+    if connection_dropped(message):
+        return ("The connection to the device dropped in the middle of the transfer. Use a direct USB port and a "
+                "good cable, keep the device unlocked and connected, then try again.")
+    return message
+
+
 def parse_size(text: str) -> int | None:
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*", text)
     if not match:

@@ -113,3 +113,17 @@ def delete_backup(root: Path, entry) -> None:
     base = snapshot_root(root, entry.udid)
     if base.is_dir() and not any(base.iterdir()):
         base.rmdir()
+
+
+def finish_backup(root: Path, udid: str, copied: list[str], success: bool, keep: int, stamp: str) -> bool:
+    """Snapshots a finished backup. A failed run can still have overwritten shared files in place, so marking
+    damaged snapshots happens either way. Returns False when the snapshot could not be written."""
+    mark_damaged(root, udid, copied)
+    if not success:
+        return True
+    try:
+        create_snapshot(root, udid, stamp)
+    except OSError:
+        return False
+    prune_snapshots(root, udid, keep)
+    return True

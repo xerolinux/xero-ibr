@@ -42,7 +42,7 @@ def spawn_pty(argv: list[str], env: dict | None = None) -> tuple[Gio.Subprocess,
     return proc, GioUnix.InputStream.new(master, True)
 
 
-def run(argv: list[str], callback, env: dict | None = None):
+def run(argv: list[str], callback, env: dict | None = None, timeout: int = 0):
     """Run argv asynchronously; callback(status: int, stdout: bytes, stderr: bytes)."""
     try:
         proc = spawn(argv, env)
@@ -50,14 +50,30 @@ def run(argv: list[str], callback, env: dict | None = None):
         GLib.idle_add(callback, -1, b"", error.message.encode())
         return
 
+    timer = [0]
+
+    def expired():
+        timer[0] = 0
+        proc.force_exit()
+        return GLib.SOURCE_REMOVE
+
+    if timeout:
+        timer[0] = GLib.timeout_add_seconds(timeout, expired)
+
     def finished(proc, result):
+        killed = timeout and not timer[0]
+        if timer[0]:
+            GLib.source_remove(timer[0])
         try:
             _, out, err = proc.communicate_finish(result)
         except GLib.Error as error:
             callback(-1, b"", error.message.encode())
             return
         status = proc.get_exit_status() if proc.get_if_exited() else -1
-        callback(status, out.get_data() if out else b"", err.get_data() if err else b"")
+        err = err.get_data() if err else b""
+        if killed:
+            err += f"{argv[0]} timed out after {timeout}s".encode()
+        callback(status, out.get_data() if out else b"", err)
 
     proc.communicate_async(None, None, finished)
 

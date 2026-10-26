@@ -3,13 +3,13 @@ from gi.repository import Gio, Gtk
 from ..core.fmt import format_date
 from ..core.snapshots import delete_backup
 from ..services.runner import in_thread
-from .dialog import Dialog, confirm
+from .dialog import PANEL, Dialog, confirm
 from .widgets import button, clear, hbox, label, vbox
 
 
 class BackupsWindow(Dialog):
     def __init__(self, window, focus_udid: str | None = None):
-        super().__init__(window, "Manage Backups", 680, 560)
+        super().__init__(window, "Manage Backups", *PANEL)
         self._window = window
         self._focus = focus_udid
         body = vbox(14)

@@ -4,15 +4,14 @@ from ..core.settings import THEMES
 from ..services import keyring
 from ..services.operation import log_dir
 from ..services.runner import REQUIRED_TOOLS, missing_tools
-from .dialog import Dialog, confirm
+from .dialog import PANEL, Dialog, confirm
 from .reveal_dialog import RevealDialog
 from .widgets import button, hbox, label, vbox
 
 
 class SettingsWindow(Dialog):
     def __init__(self, window):
-        super().__init__(window, "Settings", 640, 720)
-        self.set_resizable(True)
+        super().__init__(window, "Settings", *PANEL)
         self._window = window
         self._settings = window.settings
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)

@@ -9,13 +9,13 @@ from ..core.fmt import format_size
 from ..core.preview import converter_commands
 from ..core.settings import xdg_dir
 from ..services.runner import in_thread
-from .dialog import Dialog
+from .dialog import PANEL, Dialog
 from .widgets import button, hbox, label, vbox
 
 
 class PreviewDialog(Dialog):
     def __init__(self, parent, path: Path, kind: str):
-        super().__init__(parent, path.name, 960, 680)
+        super().__init__(parent, path.name, *PANEL)
         self.set_resizable(True)
         self._path = path
         body = vbox(0)

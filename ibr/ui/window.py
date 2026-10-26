@@ -1,5 +1,6 @@
-import shlex
+import os
 import shutil
+import time
 from pathlib import Path
 
 from gi.repository import Gio, GLib, Gtk
@@ -9,13 +10,15 @@ from ..constants import APP_ID, APP_NAME, LICENSE_NOTE, TAGLINE
 from ..core.backups import BackupEntry, dir_size, scan_backups
 from ..core.catalog import lookup
 from ..core.commands import backup_cmd, changepw_cmd, encryption_cmd
+from ..core.compat import backup_warning
 from ..core.firmware import FirmwareTarget
-from ..core.recovery import UDEV_RULE, UDEV_RULE_PATH, clean_transfers, usbmuxd_install_hint
+from ..core.recovery import clean_transfers, install_script, manual_command, rule_installed, usbmuxd_install_hint
 from ..core.settings import xdg_dir
 from ..core.fmt import format_size
-from ..core.progress import Copied, Percent
-from ..core.snapshots import create_snapshot, mark_damaged, new_stamp, prune_snapshots
+from ..core.progress import Copied, Percent, connection_dropped, explain_failure
+from ..core.snapshots import finish_backup, new_stamp
 from ..core.support import MIN_OS_LABEL, is_supported
+from ..core.usbmux import find_usbmuxd, has_systemd, muxable_device_present, start_command, status_tip
 from ..services import keyring
 from ..services.devices import Device, DeviceMonitor
 from ..services.operation import Operation
@@ -39,12 +42,14 @@ from .widgets import button, hbox, label, set_button_text, vbox
 TIPS = (
     "Use a cable that carries data, not only charging.",
     "Unlock the device and tap Trust when it asks.",
-    "Check the service with: systemctl status usbmuxd",
     "Logs are in Settings > Advanced > Log folder.",
 )
 
 
 RECOVERY_PREFIX = "recovery:"
+BACKUP_ATTEMPTS = 3
+MUX_GRACE_SECONDS = 6
+RECONNECT_SECONDS = 120
 
 
 def _os_release() -> str:
@@ -83,6 +88,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._auto_done: set[str] = set()
         self._op_active = False
         self._quit_after = False
+        self._attempt = 1
+        self._retry_source = 0
+        self._mux_down_since = 0.0
         self._copied: list[str] = []
         self._homes: dict = {}
         self._missing = missing_tools()
@@ -110,7 +118,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.device_view.connect("backup", lambda *_: self.start_backup(self.current))
         self.device_view.connect("restore", lambda *_: self.open_restore())
         self.device_view.connect("manage", lambda *_: BackupsWindow(self, self.current).present())
-        self.device_view.connect("cancel", lambda *_: self.operation and self.operation.cancel())
+        self.device_view.connect("cancel", lambda *_: self._cancel_backup())
         self.device_view.connect("encrypt-toggled", self._on_encrypt_toggled)
         self.device_view.connect("files", lambda *_: self.open_files())
         self.device_view.connect("software", lambda *_: self.open_software())
@@ -195,9 +203,17 @@ class MainWindow(Gtk.ApplicationWindow):
 
         tips = vbox(8)
         tips.append(label("Troubleshooting", "h3"))
-        for tip in TIPS:
+        for tip in (*TIPS, status_tip(has_systemd())):
             tips.append(label(f"•  {tip}", "body-text", wrap=True))
         tips.append(label(f"Requires {MIN_OS_LABEL} or later.", "caption"))
+        self._usb_rule_box = vbox(6)
+        self._usb_rule_box.append(label("Backups that stop with a dropped connection are often caused by USB power "
+                                        "saving.", "caption", wrap=True))
+        fix = button("Prevent USB Disconnects", "drive-harddisk-usb-symbolic", "outline")
+        fix.connect("clicked", lambda *_: (popover.popdown(), self._prevent_usb_drops()))
+        self._usb_rule_box.append(fix)
+        self._usb_rule_box.set_visible(not rule_installed())
+        tips.append(self._usb_rule_box)
         popover = Gtk.Popover(child=tips)
         popover.set_size_request(320, -1)
         help_button = Gtk.MenuButton(label="Troubleshoot", popover=popover, valign=Gtk.Align.CENTER)
@@ -267,7 +283,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_devices_changed(self):
         connected = self.monitor.devices
-        if self.current not in connected and self.current_recovery() is None:
+        if self.current not in connected and self.current_recovery() is None and not self._retry_source:
             ready = [u for u, d in connected.items() if d.state == "ready"]
             recovery = [RECOVERY_PREFIX + key for key in self.monitor.recovery]
             self.current = (ready or recovery or list(connected) or [None])[0]
@@ -368,13 +384,31 @@ class MainWindow(Gtk.ApplicationWindow):
             self._stack.set_visible_child_name("recovery")
             return
         device = self.current_device()
+        if self._retry_source and self.current == self._busy_udid and (device is None or device.state != "ready"):
+            self._stack.set_visible_child_name("device")
+            return
         if device is None:
-            has_daemon = bool(shutil.which("usbmuxd")) or ok
+            binary = find_usbmuxd(shutil.which, os.path.exists)
+            has_daemon = bool(binary) or ok
             daemon = ("usbmuxd installed", "done") if has_daemon else ("usbmuxd missing", "fail")
             subtitle = f"Connect it with a cable. Nothing leaves this computer. Requires {MIN_OS_LABEL} or later."
             if not has_daemon:
                 subtitle = ("The usbmuxd system service is needed to talk to iPhone and iPad. Install it with: "
                             f"{usbmuxd_install_hint(_os_release())}")
+            if binary and ok is False and muxable_device_present():
+                if not self._mux_down_since:
+                    self._mux_down_since = time.monotonic()
+                    GLib.timeout_add_seconds(MUX_GRACE_SECONDS + 1, lambda: self.refresh_ui() and False)
+            else:
+                self._mux_down_since = 0
+            if self._mux_down_since and time.monotonic() - self._mux_down_since > MUX_GRACE_SECONDS:
+                self.scanning.show("usbmuxd is not running",
+                                   "A device is plugged in but the usbmuxd service is not answering. Start it, or "
+                                   "unplug the device and connect it again.",
+                                   [("usbmuxd stopped", "fail"), ("Plugged in", "done"), ("Unlock and tap Trust", "todo")],
+                                   action=("Start usbmuxd", lambda: self._start_usbmuxd(binary)))
+                self._stack.set_visible_child_name("scan")
+                return
             self.scanning.show("Looking for your iPhone or iPad", subtitle,
                                [daemon, ("Plug in with USB", "todo"), ("Unlock and tap Trust", "todo")])
             self._stack.set_visible_child_name("scan")
@@ -432,6 +466,17 @@ class MainWindow(Gtk.ApplicationWindow):
         except OSError as error:
             self.device_view.show_banner("error", f"Cannot use the backup folder: {error.strerror}")
             return
+        warning = backup_warning(device.info)
+        if warning:
+            confirm(self, "Battery is low", warning, "Back Up Anyway",
+                    lambda ok: ok and self._check_space(udid, root))
+            return
+        self._check_space(udid, root)
+
+    def _check_space(self, udid: str, root: Path):
+        device = self.monitor.devices.get(udid)
+        if not device or not device.info or self._op_active:
+            return
         info = device.info
         if self.settings.warn_low_space and info.used_bytes:
             has_previous = (root / udid).is_dir()
@@ -445,11 +490,12 @@ class MainWindow(Gtk.ApplicationWindow):
                 return
         self._run_backup(udid, root)
 
-    def _run_backup(self, udid: str, root: Path):
+    def _run_backup(self, udid: str, root: Path, attempt: int = 1):
         device = self.monitor.devices.get(udid)
-        if not device or not device.info or self._op_active:
+        if not device or not device.info or (self._op_active and attempt == 1):
             return
         info = device.info
+        self._attempt = attempt
         self._copied = []
         argv, env = backup_cmd(udid, str(root), full=self.settings.always_full)
         self.operation = Operation("backup", argv, env)
@@ -457,7 +503,10 @@ class MainWindow(Gtk.ApplicationWindow):
         self.operation.connect("done", self._on_backup_done, udid, root, info.name)
         self._busy_udid = udid
         self._busy_percent = None
-        self.begin_operation(f"Backing up {info.name}")
+        if attempt == 1:
+            self.begin_operation(f"Backing up {info.name}")
+        else:
+            self.monitor.paused = True
         self.device_view.set_busy("backup")
         self.refresh_ui()
         self.operation.start()
@@ -473,43 +522,75 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_backup_done(self, operation, success: bool, message: str, udid: str, root: Path, name: str):
         self.operation = None
-        self._busy_udid = None
-        self.device_view.progress.finish(success)
+        keep = self.settings.keep_history
+        copied = list(self._copied)
+        stamp = new_stamp(root, udid)
         if self._quit_after:
+            finish_backup(root, udid, copied, False, keep, stamp)
             self.end_operation()
             self.destroy()
             return
-        if not success:
-            self.end_operation()
-            cancelled = message == "Cancelled"
-            self.device_view.show_banner("info" if cancelled else "error",
-                                         "Backup cancelled." if cancelled else f"Backup failed: {message}")
-            if not cancelled:
-                self.notify_done("Backup failed", f"{name}: {message}")
-            self.refresh_ui()
+        if not success and connection_dropped(message) and self._attempt < BACKUP_ATTEMPTS:
+            in_thread(lambda: finish_backup(root, udid, copied, False, keep, stamp), lambda _ok: None)
+            self._await_reconnect(udid, root, name, message)
             return
+        self._busy_udid = None
+        self.device_view.progress.finish(success)
+        in_thread(lambda: finish_backup(root, udid, copied, success, keep, stamp),
+                  lambda ok: self._backup_finished(success, message, name, ok))
 
-        keep = self.settings.keep_history
-        copied = list(self._copied)
+    def _await_reconnect(self, udid: str, root: Path, name: str, message: str):
+        attempt = self._attempt + 1
+        self.device_view.progress.waiting(f"Connection lost. Waiting for {name} to reconnect, then retrying "
+                                          f"(attempt {attempt} of {BACKUP_ATTEMPTS})…")
+        self.monitor.paused = False
+        self.monitor.recheck(udid)
+        deadline = time.monotonic() + RECONNECT_SECONDS
 
-        def snapshot():
-            mark_damaged(root, udid, copied)
-            try:
-                create_snapshot(root, udid, new_stamp(root, udid))
-            except OSError:
-                return False
-            prune_snapshots(root, udid, keep)
-            return True
+        def tick():
+            device = self.monitor.devices.get(udid)
+            if device and device.state == "ready":
+                self._retry_source = 0
+                self._run_backup(udid, root, attempt)
+                return GLib.SOURCE_REMOVE
+            if time.monotonic() > deadline:
+                self._retry_source = 0
+                self._busy_udid = None
+                self.device_view.progress.finish(False)
+                self._backup_finished(False, message, name, True)
+                return GLib.SOURCE_REMOVE
+            self.monitor.scan(refresh=False, quiet=True)
+            return GLib.SOURCE_CONTINUE
 
-        def snapshotted(ok: bool):
-            self.end_operation()
-            self._sizes.clear()
-            note = "" if ok else " Backup history is off: this drive does not support links or reflinks."
-            self.device_view.show_banner("success", f"Backup of {name} finished.{note}")
-            self.notify_done("Backup complete", f"{name} is backed up.")
-            self.reload_backups()
+        self._retry_source = GLib.timeout_add_seconds(3, tick)
 
-        in_thread(snapshot, snapshotted)
+    def _cancel_backup(self):
+        if self.operation:
+            self.operation.cancel()
+        elif self._retry_source:
+            GLib.source_remove(self._retry_source)
+            self._retry_source = 0
+            self._busy_udid = None
+            self.device_view.progress.finish(False)
+            self._backup_finished(False, "Cancelled", "", True)
+
+    def _backup_finished(self, success: bool, message: str, name: str, ok: bool):
+        self.end_operation()
+        self.reload_backups()
+        if not success:
+            cancelled = message == "Cancelled"
+            reason = explain_failure(message)
+            if connection_dropped(message) and not rule_installed():
+                reason += " If it keeps happening, use Troubleshoot > Prevent USB Disconnects."
+            self.device_view.show_banner("info" if cancelled else "error", "Backup cancelled." if cancelled
+                                         else f"Backup failed: {reason}")
+            if not cancelled:
+                self.notify_done("Backup failed", f"{name}: {reason}")
+            return
+        self._sizes.clear()
+        note = "" if ok else " Backup history is off: this drive does not support links or reflinks."
+        self.device_view.show_banner("success", f"Backup of {name} finished.{note}")
+        self.notify_done("Backup complete", f"{name} is backed up.")
 
     def open_restore(self, preselect: BackupEntry | None = None) -> bool:
         info = self.current_device_info()
@@ -572,23 +653,44 @@ class MainWindow(Gtk.ApplicationWindow):
                                                               device.ecid)).present()
 
     def _grant_usb_access(self):
+        def report(ok: bool, text: str):
+            self.recovery_view.show_banner("success" if ok else "error", text)
+            if ok:
+                for device in self.monitor.recovery.values():
+                    device.queried = False
+                GLib.timeout_add_seconds(2, lambda: self.monitor.scan(refresh=True, quiet=True) and False)
+
+        self._install_usb_rule(report, "USB access allowed. Checking the device again…")
+
+    def _prevent_usb_drops(self):
+        def report(ok: bool, text: str):
+            self._usb_rule_box.set_visible(not rule_installed())
+            alert(self, "USB power saving" if ok else "Rule not installed", text, kind="info" if ok else "warning")
+
+        self._install_usb_rule(report, "Apple devices are now kept out of USB power saving. Unplug the device and "
+                                       "connect it again for this to take effect.")
+
+    def _start_usbmuxd(self, binary: str):
         if not shutil.which("pkexec"):
-            self.recovery_view.show_banner("error", "pkexec is not available. Run the command shown above in a "
-                                           "terminal instead.")
+            alert(self, "Cannot start usbmuxd", "pkexec is not available. Start it in a terminal with: sudo "
+                  + " ".join(start_command(has_systemd(), binary)), kind="warning")
             return
-        script = (f"printf '%s' {shlex.quote(UDEV_RULE)} > {UDEV_RULE_PATH} && udevadm control --reload-rules && "
-                  "udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac")
 
         def done(status, out, err):
             if status != 0:
-                self.recovery_view.show_banner("error", "USB access was not changed.")
-                return
-            for device in self.monitor.recovery.values():
-                device.queried = False
-            self.recovery_view.show_banner("success", "USB access allowed. Checking the device again…")
-            GLib.timeout_add_seconds(2, lambda: self.monitor.scan(refresh=True, quiet=True) and False)
+                alert(self, "usbmuxd did not start", (err or out).decode(errors="replace").strip()
+                      or "Unplug the device and connect it again.", kind="warning")
+            self.monitor.scan(refresh=True)
 
-        run(["pkexec", "/bin/sh", "-c", script], done)
+        run(["pkexec", *start_command(has_systemd(), binary)], done)
+
+    def _install_usb_rule(self, report, success_text: str):
+        if not shutil.which("pkexec"):
+            report(False, f"pkexec is not available. Run this in a terminal instead:\n{manual_command()}")
+            return
+        run(["pkexec", "/bin/sh", "-c", install_script()],
+            lambda status, out, err: report(status == 0, success_text if status == 0 else "The udev rule was not "
+                                            "installed."))
 
     def open_software(self):
         info = self.current_device_info()
@@ -710,11 +812,18 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_close_request(self, *_):
         if not self._op_active:
             return False
-        if self.operation and self.operation.kind == "backup":
+        if self._retry_source or (self.operation and self.operation.kind == "backup"):
             def answered(ok):
-                if ok and self.operation:
+                if not ok:
+                    return
+                if self.operation:
                     self._quit_after = True
                     self.operation.cancel()
+                elif self._retry_source:
+                    GLib.source_remove(self._retry_source)
+                    self._retry_source = 0
+                    self.end_operation()
+                    self.destroy()
             confirm(self, "Stop the backup and quit?", "The backup in progress is cancelled.", "Stop and Quit",
                     answered, destructive=True)
         else:

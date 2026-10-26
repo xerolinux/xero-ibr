@@ -11,7 +11,7 @@ from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
 from ..services.firmware import check_tool, fetch_signed
 from ..services.operation import Operation
-from .dialog import Dialog, confirm
+from .dialog import PANEL, Dialog, confirm
 from .widgets import button, hbox, label, set_classes, vbox
 
 TOOL_HELP = {
@@ -25,7 +25,7 @@ TOOL_HELP = {
 class FirmwareDialog(Dialog):
     def __init__(self, window, device: FirmwareTarget):
         self._os = device.os_name
-        super().__init__(window, f"Update or Restore {self._os} on {device.name}", 680)
+        super().__init__(window, f"Update or Restore {self._os} on {device.name}", *PANEL)
         self._window = window
         self._device = device
         self._ipsw: str | None = None
@@ -99,14 +99,19 @@ class FirmwareDialog(Dialog):
                           "refused. If the device restarts into recovery mode and is not found, add "
                           "libirecovery's udev rules.", "caption", wrap=True))
 
-        spacer = Gtk.Box(vexpand=True)
-        page.append(spacer)
         self._start = button("Update", None, "primary", "big")
         self._start.set_halign(Gtk.Align.END)
+        self._start.set_margin_end(24)
+        self._start.set_margin_top(12)
+        self._start.set_margin_bottom(20)
         self._start.connect("clicked", self._on_start)
-        page.append(self._start)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        scroller.set_child(page)
+        outer = vbox(0)
+        outer.append(scroller)
+        outer.append(self._start)
         self._refresh()
-        return page
+        return outer
 
     def _progress_page(self):
         page = vbox(16)
