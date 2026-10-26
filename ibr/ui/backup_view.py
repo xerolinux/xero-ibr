@@ -1,12 +1,8 @@
-import io
-import math
 import os
 import shutil
 import tempfile
-from functools import cache
 from pathlib import Path
 
-import cairo
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from ..core.afc import icon_for, media_kind
@@ -19,32 +15,10 @@ from ..services.runner import in_thread
 from ..services.store_icons import fetch_store_icons
 from .backup_tree import BackupTree
 from .preview_dialog import PreviewDialog
-from .widgets import button, clear, crumb_bar, hbox, label, vbox
+from .widgets import app_texture, button, clear, crumb_bar, hbox, label, vbox
 
 ROOT_LABEL = "Backup"
 APP_ICON = 22
-
-
-@cache
-def letter_tile(letter: str) -> Gdk.Texture:
-    """Stand-in for an app icon the backup does not have."""
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 64, 64)
-    cr = cairo.Context(surface)
-    cr.new_sub_path()
-    for x, y, start in ((50, 14, -0.5), (50, 50, 0), (14, 50, 0.5), (14, 14, 1)):
-        cr.arc(x, y, 14, start * math.pi, (start + 0.5) * math.pi)
-    cr.close_path()
-    cr.set_source_rgb(0.36, 0.37, 0.43)
-    cr.fill()
-    cr.set_source_rgb(0.93, 0.93, 0.96)
-    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-    cr.set_font_size(30)
-    extents = cr.text_extents(letter)
-    cr.move_to(32 - extents.width / 2 - extents.x_bearing, 32 - extents.height / 2 - extents.y_bearing)
-    cr.show_text(letter)
-    out = io.BytesIO()
-    surface.write_to_png(out)
-    return Gdk.Texture.new_from_bytes(GLib.Bytes.new(out.getvalue()))
 
 
 class NodeItem(GObject.Object):
@@ -235,12 +209,8 @@ class BackupView(Gtk.Box):
         if not node.app or not self._reader:
             return None
         if node.app not in self._icons:
-            data = self._reader.icon(node)
-            try:
-                self._icons[node.app] = Gdk.Texture.new_from_bytes(GLib.Bytes.new(data)) if data else None
-            except GLib.Error:
-                self._icons[node.app] = None
-        return self._icons[node.app] or letter_tile((node.name[:1] or "?").upper())
+            self._icons[node.app] = app_texture(self._reader.icon(node), node.name)
+        return self._icons[node.app]
 
     def show(self, entry: BackupEntry) -> bool:
         if self.busy:

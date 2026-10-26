@@ -5,15 +5,18 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from ..core.afc import (AfcError, RemoteEntry, SharingApp, breadcrumbs, child_path, icon_for, location_root,
                         media_kind, parent_path)
+from ..core.app_catalog import catalog_file, load_saved
 from ..core.fmt import format_date, format_size
 from ..core.settings import xdg_dir
 from ..services.afc import Afc, list_sharing_apps
+from ..services.homescreen import refresh_app_catalog
 from ..services.runner import in_thread
 from .dialog import confirm
 from .preview_dialog import PreviewDialog
-from .widgets import button, clear, crumb_bar, hbox, label, vbox
+from .widgets import app_texture, button, clear, crumb_bar, hbox, label, vbox
 
 MEDIA = "Media"
+APP_ICON = 20
 
 
 class EntryItem(GObject.Object):
@@ -83,6 +86,7 @@ class FilesView(Gtk.Box):
         self._path = "/"
         self._root = "/"
         self._busy = False
+        self._app_icons: dict[str, Gdk.Texture] = {}
 
         locations = vbox(8, "sidebar", "files-locations")
         locations.set_size_request(200, -1)
@@ -105,6 +109,8 @@ class FilesView(Gtk.Box):
         for side, value in (("top", 14), ("bottom", 12), ("start", 16), ("end", 16)):
             getattr(main, f"set_margin_{side}")(value)
         toolbar = hbox(8)
+        self._title_icon = Gtk.Image(pixel_size=32, visible=False)
+        toolbar.append(self._title_icon)
         self._title = label("", "h3", ellipsize=True)
         self._title.set_hexpand(True)
         toolbar.append(self._title)
@@ -170,8 +176,15 @@ class FilesView(Gtk.Box):
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _location_button(self, title: str, icon: str, app: SharingApp | None) -> Gtk.Button:
-        widget = button(title, icon, "flat", "location")
+    def _location_button(self, title: str, icon: str | Gdk.Texture, app: SharingApp | None) -> Gtk.Button:
+        if isinstance(icon, str):
+            widget = button(title, icon, "flat", "location")
+        else:
+            widget = Gtk.Button(css_classes=["flat", "location"])
+            content = hbox(8)
+            content.append(Gtk.Image(paintable=icon, pixel_size=APP_ICON))
+            content.append(label(title, ellipsize=True))
+            widget.set_child(content)
         widget.get_child().set_halign(Gtk.Align.START)
         widget.app = app
         widget.connect("clicked", lambda *_: self._select_location(app))
@@ -222,19 +235,25 @@ class FilesView(Gtk.Box):
 
         def work():
             try:
-                return list_sharing_apps(udid), None
+                apps = list_sharing_apps(udid)
             except Exception as error:
-                return [], str(error)
+                return [], {}, str(error)
+            saved = load_saved(catalog_file(udid))
+            if any(not (saved.get(app.bundle_id) and saved[app.bundle_id].icon) for app in apps):
+                refresh_app_catalog(udid)
+                saved = load_saved(catalog_file(udid))
+            return apps, {bid: meta.icon for bid, meta in saved.items()}, None
 
         def loaded(result):
-            apps, error = result
+            apps, icons, error = result
             if udid != self._udid:
                 return
             clear(self._apps)
             if error or not apps:
                 self._apps.append(label(error or "No installed apps share files.", "caption", wrap=True))
+            self._app_icons = {app.bundle_id: app_texture(icons.get(app.bundle_id), app.name) for app in apps}
             for app in apps:
-                self._apps.append(self._location_button(app.name, "application-x-addon-symbolic", app))
+                self._apps.append(self._location_button(app.name, self._app_icons[app.bundle_id], app))
 
         in_thread(work, loaded)
 
@@ -245,6 +264,10 @@ class FilesView(Gtk.Box):
         active.add_css_class("active")
         self.afc = Afc(self._udid, app.bundle_id if app else None)
         self._location_name = app.name if app else MEDIA
+        icon = self._app_icons.get(app.bundle_id) if app else None
+        self._title_icon.set_visible(icon is not None)
+        if icon is not None:
+            self._title_icon.set_from_paintable(icon)
         self._root = location_root(app.bundle_id if app else None)
         self.open_path(self._root)
 

@@ -64,10 +64,13 @@ jobs:
       - name: Checksums
         run: for f in *.AppImage; do sha256sum "$f" > "$f.sha256"; done
       - name: Release notes
-        # Commits go straight to main, so the notes are their messages since the previous release.
+        # Commits go straight to main, so the notes are their bullet bodies (or subjects) since the previous release.
         run: |
           previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          git log --no-merges --format='%B' ${previous:+"$previous"..}HEAD > notes.md
+          for commit in $(git log --no-merges --format=%H ${previous:+"$previous"..}HEAD); do
+            body=$(git log -1 --format=%b "$commit")
+            if [ -n "$body" ]; then echo "$body"; else echo "- $(git log -1 --format=%s "$commit")"; fi
+          done > notes.md
       - name: Publish release
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:

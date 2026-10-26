@@ -1,4 +1,9 @@
-from gi.repository import Gtk, Pango
+import io
+import math
+from functools import cache
+
+import cairo
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 
 def label(text: str = "", *classes: str, xalign: float = 0.0, wrap: bool = False,
@@ -110,3 +115,35 @@ class InfoCard(Gtk.Box):
         self.bar.set_visible(fraction is not None)
         if fraction is not None:
             self.bar.set_fraction(max(0.0, min(fraction, 1.0)))
+
+
+@cache
+def letter_tile(letter: str) -> Gdk.Texture:
+    """Stand-in for an app icon the backup does not have."""
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 64, 64)
+    cr = cairo.Context(surface)
+    cr.new_sub_path()
+    for x, y, start in ((50, 14, -0.5), (50, 50, 0), (14, 50, 0.5), (14, 14, 1)):
+        cr.arc(x, y, 14, start * math.pi, (start + 0.5) * math.pi)
+    cr.close_path()
+    cr.set_source_rgb(0.36, 0.37, 0.43)
+    cr.fill()
+    cr.set_source_rgb(0.93, 0.93, 0.96)
+    cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+    cr.set_font_size(30)
+    extents = cr.text_extents(letter)
+    cr.move_to(32 - extents.width / 2 - extents.x_bearing, 32 - extents.height / 2 - extents.y_bearing)
+    cr.show_text(letter)
+    out = io.BytesIO()
+    surface.write_to_png(out)
+    return Gdk.Texture.new_from_bytes(GLib.Bytes.new(out.getvalue()))
+
+
+def app_texture(data: bytes | None, name: str) -> Gdk.Texture:
+    """An app's icon from PNG data, or a letter tile when there is none."""
+    if data:
+        try:
+            return Gdk.Texture.new_from_bytes(GLib.Bytes.new(data))
+        except GLib.Error:
+            pass
+    return letter_tile((name[:1] or "?").upper())
