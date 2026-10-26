@@ -96,7 +96,7 @@ class Sidebar(Gtk.Box):
             group.append(empty)
         for entry in device.backups[: self.HISTORY]:
             row = self._backup_row(entry)
-            row.set_margin_start(30)
+            row.set_margin_start(24)
             group.append(row)
         return group
 
@@ -109,7 +109,7 @@ class Sidebar(Gtk.Box):
             row.add_css_class("active")
         content = hbox(8)
         when = format_date(entry.local_date) if entry.local_date else "Unknown date"
-        content.append(self._expand(label(when)))
+        content.append(self._expand(label(when, ellipsize=True)))
         if entry.encrypted:
             lock = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
             lock.add_css_class("dim")

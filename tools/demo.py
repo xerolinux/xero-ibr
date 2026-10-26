@@ -75,6 +75,10 @@ def seed_backups(root: Path):
         create_snapshot(root, IPAD, when.strftime("%Y%m%d-%H%M%S"))
     make_backup(root, OLD, "Old iPhone 11", "iPhone12,1", "18.6.2", now - timedelta(days=120), 8_000_000_000)
     make_browsable(root / OLD)
+    from ibr.core.app_catalog import AppMeta, catalog_file, save_merged
+    save_merged(catalog_file(PHONE), {bid: AppMeta(name, demo_icon(name, colour)) for bid, name, colour in (
+        ("com.readdle.Documents", "Documents", "#3d7bf7"), ("org.videolan.vlc-ios", "VLC", "#f28a1e"),
+        ("com.firecore.infuse", "Infuse", "#e8562a"))})
 
 
 BROWSABLE = [
@@ -95,6 +99,8 @@ BROWSABLE = [
     ("AppDomainPlugin-com.8bit.bitwarden.autofill", "Library/Preferences/autofill.plist"),
     ("AppDomain-com.spotify.client", "Library/Preferences/com.spotify.client.plist"),
     ("AppDomain-com.apple.AAUIViewService", "Library/Preferences/state.plist"),
+    ("AppDomainGroup-group.com.apple.FileProvider.LocalStorage", "File Provider Storage/Downloads/Invoice.pdf"),
+    ("AppDomainGroup-group.com.apple.FileProvider.LocalStorage", "File Provider Storage/Scans/Receipt.pdf"),
     ("KeychainDomain", "keychain-backup.plist"),
     ("WirelessDomain", "Library/Preferences/com.apple.wifi.plist"),
 ]
@@ -239,7 +245,8 @@ class FakeAfc:
         + [("IMG_0009.MOV", False, 84_000_000)],
     }
 
-    APP_TREE = {"/": [("Movies", True, 0), ("Holiday.mkv", False, 1_900_000_000), ("Lecture.mp4", False, 620_000_000)]}
+    APP_TREE = {"/Documents": [("Movies", True, 0), ("Holiday.mkv", False, 1_900_000_000),
+                               ("Lecture.mp4", False, 620_000_000)]}
 
     def __init__(self, udid, app_id=None):
         self.app_id = app_id
@@ -397,6 +404,7 @@ def install_simulation():
     firmware_dialog.firmware_cmd = fake_firmware_cmd
     files_view.Afc = FakeAfc
     files_view.list_sharing_apps = fake_apps
+    files_view.refresh_app_catalog = lambda udid: False
     firmware_dialog.check_tool = lambda callback: GLib.idle_add(lambda: callback("ok") and False)
     from ibr.core.update import UpdateInfo
     from ibr.services import updater

@@ -89,7 +89,7 @@ class FilesView(Gtk.Box):
         self._app_icons: dict[str, Gdk.Texture] = {}
 
         locations = vbox(8, "sidebar", "files-locations")
-        locations.set_size_request(200, -1)
+        locations.set_size_request(270, -1)
         back = button("Back to device", "go-previous-symbolic", "flat")
         back.set_halign(Gtk.Align.START)
         back.connect("clicked", lambda *_: self.emit("close"))
@@ -102,7 +102,8 @@ class FilesView(Gtk.Box):
         self._apps = vbox(4)
         scroller.set_child(self._apps)
         locations.append(scroller)
-        self.append(locations)
+        self.append(Gtk.ScrolledWindow(child=locations, hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                       vscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_width=False))
 
         main = vbox(12)
         main.set_hexpand(True)

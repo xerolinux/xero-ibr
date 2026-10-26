@@ -83,6 +83,10 @@ def main():
     def preview_photo(win):
         win.files_view._preview(win.files_view._store.get_item(0))
 
+    def open_vlc(win):
+        view = win.files_view
+        next(b for b in view._app_buttons() if b.app and b.app.name == "VLC").emit("clicked")
+
     def firmware(win):
         from ibr.core.firmware import FirmwareTarget
         from ibr.ui.firmware_dialog import FirmwareDialog
@@ -106,9 +110,14 @@ def main():
         (lambda w: (w.open_files(), GLib.timeout_add(300, lambda: w.files_view.open_path("/DCIM/100APPLE")
                                                        and False)), 1600, window_frame(1.8)),
         (preview_photo, 1600, dialog_frame(PreviewDialog, 2.0)),
+        (open_vlc, 1200, window_frame(1.8)),
         (lambda w: browse(w, demo.OLD), 1500, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), 900, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Apps",)), 900, window_frame(1.6)),
+        (lambda w: w.backup_view.open_path(("Apps", "WhatsApp", "Shared")), 900, window_frame(1.8)),
+        (lambda w: w.backup_view.tree._search.set_text("vl"), 900, window_frame(1.6)),
+        (lambda w: (w.backup_view.tree._search.set_text(""), w.backup_view.open_path(("On My iPhone",))), 900,
+         window_frame(1.6)),
         (lambda w: browse(w, demo.PHONE), 900, window_frame(1.8)),
         (lambda w: (w.close_backup(), scene("older-ios")), 1200, window_frame(1.4)),
         (firmware, 1200, dialog_frame(FirmwareDialog, 2.2)),

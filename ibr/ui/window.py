@@ -107,7 +107,11 @@ class MainWindow(Gtk.ApplicationWindow):
         self.sidebar.connect("backup-activated", self._on_backup_activated)
         self._side = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hhomogeneous=False)
         self._side.add_named(self.sidebar, "devices")
-        self._sidebar_revealer = Gtk.Revealer(child=self._side, reveal_child=True, transition_duration=150,
+        # Without this the sidebar widens to fit its longest backup or device name on roomy pages.
+        side_frame = Gtk.ScrolledWindow(child=self._side, hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                        vscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_width=False)
+        side_frame.set_size_request(270, -1)
+        self._sidebar_revealer = Gtk.Revealer(child=side_frame, reveal_child=True, transition_duration=150,
                                               transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT,
                                               hexpand=False)
         body.append(self._sidebar_revealer)
