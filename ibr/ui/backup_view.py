@@ -10,15 +10,20 @@ from ..core.app_catalog import APPLE_APPS, AppMeta, catalog_file, load_saved, sa
 from ..core.backup_browse import BackupReader, Node, PasswordNeeded, WrongPassword
 from ..core.backups import BackupEntry
 from ..core.fmt import format_date, format_size
+from ..core.thumbs import THUMB_SIZE, backup_ios_thumbnail
 from ..services import keyring
 from ..services.runner import in_thread
 from ..services.store_icons import fetch_store_icons
+from ..services.thumbnails import can_render, render
 from .backup_tree import BackupTree
+from .audio_player import Song
 from .preview_dialog import PreviewDialog
+from .thumbs import ThumbLoader, Tile, ViewSwitch, set_row_thumb, thumb_cell
 from .widgets import app_texture, button, clear, crumb_bar, hbox, label, vbox
 
 ROOT_LABEL = "Backup"
-APP_ICON = 22
+# Encrypted files are decrypted to make a thumbnail; bigger ones keep their icon.
+THUMB_EXTRACT_LIMIT = 64 * 1024 * 1024
 
 
 class NodeItem(GObject.Object):
@@ -55,6 +60,7 @@ class BackupView(Gtk.Box):
         self._path: tuple[str, ...] = ()
         self._heading = ("", "")
         self._asked: set[str] = set()
+        self._thumbs = ThumbLoader()
         self._temp: Path | None = None
         self.busy = False
         self.tree = BackupTree(self._icon_for)
@@ -92,6 +98,9 @@ class BackupView(Gtk.Box):
         path_row.append(self._up)
         crumbs, self._crumbs = crumb_bar()
         path_row.append(crumbs)
+        self._switch = ViewSwitch(window.settings.backup_view_mode)
+        self._switch.connect("changed", lambda _s, mode: self._set_mode(mode))
+        path_row.append(self._switch)
         self.append(path_row)
 
         self._pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
@@ -122,9 +131,21 @@ class BackupView(Gtk.Box):
             format_date(item.details.modified) if item.details and item.details.modified else ""), width=190)
         frame = Gtk.ScrolledWindow(vexpand=True, child=self._list)
         frame.add_css_class("files-frame")
+        tiles = Gtk.SignalListItemFactory()
+        tiles.connect("setup", lambda _f, cell: cell.set_child(Tile()))
+        tiles.connect("bind", self._bind_tile)
+        self._grid = Gtk.GridView(model=self._selection, factory=tiles, min_columns=2, max_columns=12)
+        self._grid.add_css_class("tiles")
+        self._grid.connect("activate", lambda _v, position: self._activate(self._store.get_item(position)))
+        grid_frame = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER, child=self._grid)
+        grid_frame.add_css_class("files-frame")
+        self._views = Gtk.Stack(vexpand=True)
+        self._views.add_named(frame, "list")
+        self._views.add_named(grid_frame, "grid")
+        self._views.set_visible_child_name(self._window.settings.backup_view_mode)
         self._empty = label("", "caption", xalign=0.5)
         self._empty.set_can_target(False)
-        overlay = Gtk.Overlay(child=frame)
+        overlay = Gtk.Overlay(child=self._views)
         overlay.add_overlay(self._empty)
         return overlay
 
@@ -183,20 +204,57 @@ class BackupView(Gtk.Box):
     @staticmethod
     def _setup_name(cell):
         row = hbox(10)
-        row.append(Gtk.Image(width_request=APP_ICON))
+        row.append(thumb_cell(Gtk.Image()))
         row.append(label("", ellipsize=True))
         cell.set_child(row)
 
-    @staticmethod
-    def _bind_name(item: NodeItem, row: Gtk.Box):
-        image, icon = row.get_first_child(), item.icon
-        if icon:
-            image.set_from_paintable(icon)
-            image.set_pixel_size(APP_ICON)
-        else:
-            image.set_from_icon_name(icon_for(item.node.name, item.node.is_dir))
-            image.set_pixel_size(-1)
-        row.get_last_child().set_label(item.node.name)
+    def _bind_name(self, item: NodeItem, row: Gtk.Box):
+        thumb, node = row.get_first_child(), item.node
+        icon = icon_for(node.name, node.is_dir)
+        row.item = item
+        texture = item.icon or self._thumb(item, lambda t: row.item is item and set_row_thumb(thumb, t, icon))
+        set_row_thumb(thumb, texture, icon)
+        row.get_last_child().set_label(node.name)
+
+    def _bind_tile(self, _factory, cell):
+        item, tile = cell.get_item(), cell.get_child()
+        node = item.node
+        icon = icon_for(node.name, node.is_dir)
+        texture = item.icon or self._thumb(item, lambda t: tile.item is item and tile.set_texture(t, icon))
+        tile.show(item, node.name, self._size_text(item), icon, texture,
+                  not node.is_dir and media_kind(node.name, False) == "video")
+
+    def _thumb(self, item: NodeItem, apply) -> Gdk.Texture | None:
+        node, reader, entry = item.node, self._reader, self.entry
+        if node.is_dir or reader is None:
+            return None
+        thumb_path = backup_ios_thumbnail((*self._path, node.name))
+        camera = reader.find(thumb_path) if thumb_path else None
+        camera = camera if camera is not None and not camera.is_dir else None
+        details = item.details
+        small = can_render(node.name) and (not reader.encrypted or (details and details.size <= THUMB_EXTRACT_LIMIT))
+        if camera is None and not small:
+            return None
+
+        def produce(target: Path) -> bool:
+            with tempfile.TemporaryDirectory(prefix="ibr-thumb-") as work:
+                if camera is not None:
+                    reader.extract(camera, Path(work) / "thumb.jpg")
+                    return render(Path(work) / "thumb.jpg", "thumb.jpg", target, THUMB_SIZE)
+                if not reader.encrypted:
+                    return render(reader.source(node), node.name, target, THUMB_SIZE)
+                reader.extract(node, Path(work) / node.name)
+                return render(Path(work) / node.name, node.name, target, THUMB_SIZE)
+
+        return self._thumbs.request(f"backup:{entry.path}:{node.file_id}", produce, apply)
+
+    def _set_mode(self, mode: str):
+        if self._views.get_visible_child_name() == mode:
+            return
+        self._views.set_visible_child_name(mode)
+        self._switch.select(mode)
+        self._window.settings.backup_view_mode = mode
+        self._window.settings.save()
 
     @staticmethod
     def _size_text(item: NodeItem) -> str:
@@ -354,6 +412,7 @@ class BackupView(Gtk.Box):
     def open_path(self, path: tuple[str, ...]):
         if not self._reader:
             return
+        self._thumbs.forget_pending()
         self._path = path
         nodes = self._reader.listing(path)
         items = [NodeItem(node, self._reader, self._icon_for) for node in nodes]
@@ -403,14 +462,23 @@ class BackupView(Gtk.Box):
         else:
             self._status.set_label("Select a file first.")
 
-    def _preview(self, node: Node):
-        if self.busy:
-            return
+    def _temp_folder(self) -> Path:
+        """A private folder for previews, removed when the backup is closed."""
         if self._temp is None:
             runtime = os.environ.get("XDG_RUNTIME_DIR")
             self._temp = Path(tempfile.mkdtemp(prefix="ibr-backup-", dir=runtime if runtime else None))
-        folder = Path(tempfile.mkdtemp(dir=self._temp))
+        return Path(tempfile.mkdtemp(dir=self._temp))
+
+    def _preview(self, node: Node):
+        if self.busy:
+            return
+        folder = self._temp_folder()
         kind = media_kind(node.name, False)
+        if kind == "audio":
+            tracks = [i.node for i in self._store if not i.node.is_dir and media_kind(i.node.name, False) == "audio"]
+            songs = [Song(n.name, self._fetcher(n)) for n in tracks]
+            PreviewDialog(self._window, None, kind, songs, tracks.index(node)).present()
+            return
 
         def opened(result):
             if not result.saved:
@@ -422,6 +490,23 @@ class BackupView(Gtk.Box):
                 Gtk.FileLauncher.new(Gio.File.new_for_path(str(path))).launch(self._window, None, None)
 
         self._run_export([node], folder, "Opening", opened)
+
+    def _fetcher(self, node: Node):
+        reader = self._reader
+
+        def fetch(callback):
+            target = self._temp_folder() / node.name
+
+            def extract():
+                try:
+                    reader.extract(node, target)
+                except Exception:  # unreadable or undecryptable: the player says it could not open the file
+                    return None
+                return target
+
+            in_thread(extract, callback)
+
+        return fetch
 
     def _pick_destination(self):
         selected = self._selected()

@@ -37,6 +37,8 @@ class Settings:
     keep_awake: bool = True
     theme: str = "dark"
     show_identifiers: bool = False
+    files_view_mode: str = "list"
+    backup_view_mode: str = "list"
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":

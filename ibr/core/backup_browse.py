@@ -320,7 +320,8 @@ class BackupReader:
     def source(self, node: Node) -> Path:
         return self.folder / node.file_id[:2] / node.file_id
 
-    def _copy(self, node: Node, target: Path):
+    def extract(self, node: Node, target: Path):
+        """Writes one file out of the backup, decrypted, with its original date."""
         details = self.details(node)
         with open(self.source(node), "rb") as src, open(target, "wb") as dst:
             if self._keys is None or details.key is None:
@@ -358,7 +359,7 @@ class BackupReader:
             on_item(index, len(jobs), node.name)
             target = _unique(folder, node.name)
             try:
-                self._copy(node, target)
+                self.extract(node, target)
             except FileNotFoundError:
                 target.unlink(missing_ok=True)
                 result.missing += 1

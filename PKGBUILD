@@ -7,6 +7,8 @@ arch=('any')
 url="https://github.com/xerolinux/xero-ibr"
 license=('MIT')
 depends=(
+  'gst-plugins-base'
+  'gst-plugins-good'
   'gtk4'
   'libimobiledevice'
   'libsecret'
@@ -28,6 +30,7 @@ optdepends=(
   'idevicerestore-git: update or restore iOS firmware (AUR, needs a 2024 or newer build for iOS 15+)'
   'org.freedesktop.secrets: remember backup passwords (gnome-keyring or kwallet)'
   'inter-font: the interface font the design uses'
+  'gst-libav: play AAC and other common audio and video formats, and thumbnail more videos'
 )
 source=()
 

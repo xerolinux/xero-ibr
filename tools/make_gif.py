@@ -13,7 +13,7 @@ sys.argv = [sys.argv[0]]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import demo  # noqa: E402
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 from PIL import Image, ImageFilter  # noqa: E402
 
 from ibr.app import Application  # noqa: E402
@@ -58,6 +58,16 @@ def main():
     demo.install_simulation()
     monitor = demo.DemoMonitor()
     app = Application(monitor)
+    app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
+    from ibr.ui import audio_player
+    play = audio_player.AudioPlayer._start
+
+    def muted_start(player, path, turn):
+        play(player, path, turn)
+        if player._stream:
+            player._stream.set_muted(True)
+
+    audio_player.AudioPlayer._start = muted_start
     frames: list[tuple[Path, float]] = []
 
     def save(image: Image.Image, seconds: float):
@@ -81,6 +91,9 @@ def main():
         return take
 
     def preview_photo(win):
+        win.files_view._preview(win.files_view._store.get_item(0))
+
+    def play_song(win):
         win.files_view._preview(win.files_view._store.get_item(0))
 
     def open_vlc(win):
@@ -109,8 +122,12 @@ def main():
         (lambda w: None, 2600, window_frame(1.8)),
         (lambda w: (w.open_files(), GLib.timeout_add(300, lambda: w.files_view.open_path("/DCIM/100APPLE")
                                                        and False)), 1600, window_frame(1.8)),
+        (lambda w: w.files_view._set_mode("grid"), 2500, window_frame(2.0)),
         (preview_photo, 1600, dialog_frame(PreviewDialog, 2.0)),
-        (open_vlc, 1200, window_frame(1.8)),
+        (open_vlc, 1200, window_frame(1.2)),
+        (lambda w: w.files_view.open_path("/Documents/Music"), 5000, window_frame(1.8)),
+        (play_song, 6000, dialog_frame(PreviewDialog, 2.4)),
+        (lambda w: w.files_view._set_mode("list"), 300, lambda w: None),
         (lambda w: browse(w, demo.OLD), 1500, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), 900, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Apps",)), 900, window_frame(1.6)),

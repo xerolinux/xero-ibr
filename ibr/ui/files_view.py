@@ -8,15 +8,21 @@ from ..core.afc import (AfcError, RemoteEntry, SharingApp, breadcrumbs, child_pa
 from ..core.app_catalog import catalog_file, load_saved
 from ..core.fmt import format_date, format_size
 from ..core.settings import xdg_dir
+from ..core.thumbs import THUMB_SIZE, ios_thumbnail
 from ..services.afc import Afc, list_sharing_apps
 from ..services.homescreen import refresh_app_catalog
 from ..services.runner import in_thread
+from ..services.thumbnails import can_render, render
 from .dialog import confirm
+from .audio_player import Song
 from .preview_dialog import PreviewDialog
+from .thumbs import ThumbLoader, Tile, ViewSwitch, set_row_thumb, thumb_cell
 from .widgets import app_texture, button, clear, crumb_bar, hbox, label, vbox
 
 MEDIA = "Media"
 APP_ICON = 20
+# Files outside the Camera Roll are downloaded whole to make a thumbnail; bigger ones keep their icon.
+THUMB_DOWNLOAD_LIMIT = 64 * 1024 * 1024
 
 
 class EntryItem(GObject.Object):
@@ -87,6 +93,7 @@ class FilesView(Gtk.Box):
         self._root = "/"
         self._busy = False
         self._app_icons: dict[str, Gdk.Texture] = {}
+        self._thumbs = ThumbLoader()
 
         locations = vbox(8, "sidebar", "files-locations")
         locations.set_size_request(270, -1)
@@ -115,7 +122,7 @@ class FilesView(Gtk.Box):
         self._title = label("", "h3", ellipsize=True)
         self._title.set_hexpand(True)
         toolbar.append(self._title)
-        self._up = button("", "go-up-symbolic", tooltip="Parent folder")
+        self._up = button("", "ibr-go-parent-symbolic", "flat", "crumb-up", tooltip="Up one level")
         self._up.connect("clicked", lambda *_: self.open_path(parent_path(self._path)))
         new_folder = button("", "folder-new-symbolic", tooltip="New folder")
         new_folder.connect("clicked", lambda *_: self._new_folder())
@@ -131,11 +138,17 @@ class FilesView(Gtk.Box):
         refresh = button("", "view-refresh-symbolic", tooltip="Refresh")
         refresh.connect("clicked", lambda *_: self.open_path(self._path))
         self._actions = [self._up, new_folder, preview, upload, download, delete, refresh]
-        for widget in self._actions:
+        for widget in self._actions[1:]:
             toolbar.append(widget)
         main.append(toolbar)
+        path_row = hbox(6)
+        path_row.append(self._up)
         crumbs, self._crumbs = crumb_bar()
-        main.append(crumbs)
+        path_row.append(crumbs)
+        self._switch = ViewSwitch(window.settings.files_view_mode)
+        self._switch.connect("changed", lambda _s, mode: self._set_mode(mode))
+        path_row.append(self._switch)
+        main.append(path_row)
 
         self._store = Gio.ListStore(item_type=EntryItem)
         self._selection = Gtk.MultiSelection(model=self._store)
@@ -150,15 +163,28 @@ class FilesView(Gtk.Box):
         frame = Gtk.ScrolledWindow(vexpand=True)
         frame.add_css_class("files-frame")
         frame.set_child(self._list)
+        tiles = Gtk.SignalListItemFactory()
+        tiles.connect("setup", self._setup_tile)
+        tiles.connect("bind", self._bind_tile)
+        self._grid = Gtk.GridView(model=self._selection, factory=tiles, min_columns=2, max_columns=12)
+        self._grid.add_css_class("tiles")
+        self._grid.connect("activate", self._on_activate)
+        grid_frame = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        grid_frame.add_css_class("files-frame")
+        grid_frame.set_child(self._grid)
+        self._views = Gtk.Stack(vexpand=True)
+        self._views.add_named(frame, "list")
+        self._views.add_named(grid_frame, "grid")
+        self._views.set_visible_child_name(window.settings.files_view_mode)
         self._empty = label("", "caption", xalign=0.5)
-        overlay = Gtk.Overlay(child=frame)
+        overlay = Gtk.Overlay(child=self._views)
         overlay.add_overlay(self._empty)
         self._empty.set_can_target(False)
         main.append(overlay)
 
         drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         drop.connect("drop", self._on_drop)
-        frame.add_controller(drop)
+        self._views.add_controller(drop)
 
         status = hbox(10)
         self._status = label("", "caption", ellipsize=True)
@@ -211,7 +237,7 @@ class FilesView(Gtk.Box):
 
     def _setup_name(self, factory, cell):
         row = hbox(10)
-        row.append(Gtk.Image())
+        row.append(thumb_cell(Gtk.Image()))
         row.append(label("", ellipsize=True))
         source = Gtk.DragSource(actions=Gdk.DragAction.COPY)
         source.connect("prepare", self._on_drag_prepare, cell)
@@ -219,8 +245,54 @@ class FilesView(Gtk.Box):
         cell.set_child(row)
 
     def _bind_name(self, item: EntryItem, row: Gtk.Box):
-        row.get_first_child().set_from_icon_name(icon_for(item.entry.name, item.entry.is_dir))
+        thumb = row.get_first_child()
+        icon = icon_for(item.entry.name, item.entry.is_dir)
+        row.item = item
+        set_row_thumb(thumb, self._thumb(item, lambda t: row.item is item and set_row_thumb(thumb, t, icon)), icon)
         row.get_last_child().set_label(item.entry.name)
+
+    def _setup_tile(self, factory, cell):
+        tile = Tile()
+        source = Gtk.DragSource(actions=Gdk.DragAction.COPY)
+        source.connect("prepare", self._on_drag_prepare, cell)
+        tile.add_controller(source)
+        cell.set_child(tile)
+
+    def _bind_tile(self, factory, cell):
+        item, tile = cell.get_item(), cell.get_child()
+        entry = item.entry
+        icon = icon_for(entry.name, entry.is_dir)
+        texture = self._thumb(item, lambda t: tile.item is item and tile.set_texture(t, icon))
+        detail = "Folder" if entry.is_dir else format_size(entry.size)
+        tile.show(item, entry.name, detail, icon, texture, media_kind(entry.name, entry.is_dir) == "video")
+
+    def _thumb(self, item: EntryItem, apply) -> Gdk.Texture | None:
+        entry = item.entry
+        if entry.is_dir or not self.afc:
+            return None
+        afc = self.afc
+        camera = ios_thumbnail(item.path) if not afc.app_id else None
+        small = entry.size <= THUMB_DOWNLOAD_LIMIT and can_render(entry.name)
+        if not camera and not small:
+            return None
+
+        def produce(target: Path) -> bool:
+            with tempfile.TemporaryDirectory(prefix="ibr-thumb-") as work:
+                if camera and afc.fetch(camera, Path(work) / "thumb.jpg"):
+                    return render(Path(work) / "thumb.jpg", "thumb.jpg", target, THUMB_SIZE)
+                local = Path(work) / entry.name
+                return small and afc.fetch(item.path, local) and render(local, entry.name, target, THUMB_SIZE)
+
+        key = f"live:{self._udid}:{afc.app_id}:{item.path}:{entry.size}:{entry.modified}"
+        return self._thumbs.request(key, produce, apply)
+
+    def _set_mode(self, mode: str):
+        if self._views.get_visible_child_name() == mode:
+            return
+        self._views.set_visible_child_name(mode)
+        self._switch.select(mode)
+        self._window.settings.files_view_mode = mode
+        self._window.settings.save()
 
     def show_device(self, udid: str, name: str):
         if udid != self._udid:
@@ -273,6 +345,7 @@ class FilesView(Gtk.Box):
         self.open_path(self._root)
 
     def open_path(self, path: str):
+        self._thumbs.forget_pending()
         self._path = path
         self._render_crumbs()
         self._set_status("Loading…")
@@ -329,6 +402,11 @@ class FilesView(Gtk.Box):
         kind = media_kind(item.entry.name, False)
         folder = self.staging_root() / "preview"
         folder.mkdir(parents=True, exist_ok=True)
+        if kind == "audio":
+            tracks = [i for i in self._store if not i.entry.is_dir and media_kind(i.entry.name, False) == "audio"]
+            songs = [Song(i.entry.name, self._fetcher(self.afc, i.path, folder)) for i in tracks]
+            PreviewDialog(self._window, None, kind, songs, tracks.index(item)).present()
+            return
         self.transfer_started(1, "Opening")
         self.transfer_item(0, item.entry.name)
 
@@ -341,6 +419,10 @@ class FilesView(Gtk.Box):
                     Gtk.FileLauncher.new(Gio.File.new_for_path(str(paths[0]))).launch(self._window, None, None)
 
         _download_queue(self.afc, [item.path], folder, lambda *_: None, fetched)
+
+    @staticmethod
+    def _fetcher(afc: Afc, remote: str, folder: Path):
+        return lambda callback: afc.download(remote, folder, lambda path, error: callback(None if error else path))
 
     def _on_drag_prepare(self, source, x, y, cell):
         item = cell.get_item()

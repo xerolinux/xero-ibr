@@ -1,4 +1,6 @@
 import ctypes
+import os
+import subprocess
 from pathlib import Path
 
 from ..core.afc import AfcError, SharingApp, check_output, child_path, parse_listing, sharing_apps
@@ -115,6 +117,19 @@ class Afc:
         target = Path(local_dir) / remote.rstrip("/").rsplit("/", 1)[-1]
         self._call(lambda result, error: callback(target if error is None else None, error),
                    check_output, "get", "-rf", "--", remote, str(target))
+
+    def fetch(self, remote: str, target: Path) -> bool:
+        """Blocking: copies one small file (a thumbnail) from the device."""
+        try:
+            result = subprocess.run(self._argv("get", "-f", "--", remote, str(target)), capture_output=True,
+                                    timeout=60, env={**os.environ, "LC_ALL": "C"})
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        try:
+            check_output(result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace"))
+        except AfcError:
+            return False
+        return result.returncode == 0 and target.is_file()
 
     def upload(self, local: Path, remote_dir: str, callback):
         self._call(callback, check_output, "put", "-rf", "--", str(local), child_path(remote_dir, Path(local).name))

@@ -480,3 +480,25 @@ window.ibr .backup-tree label.tree-header { font-size: 11px; font-weight: 700; l
 window.ibr button.tree-back { padding: 6px 8px; }
 window.ibr checkbutton.choice-card { background: var(--card); border-radius: 10px; padding: 12px 14px; }
 window.ibr checkbutton.choice-card:checked { box-shadow: inset 0 0 0 1px var(--primary); }
+window.ibr gridview.tiles { background: transparent; padding: 10px; }
+window.ibr gridview.tiles > child { padding: 6px; border-radius: 10px; }
+window.ibr gridview.tiles > child:hover { background: var(--card-hover); }
+window.ibr gridview.tiles > child:selected { background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--primary); }
+window.ibr .tile-frame { border-radius: 8px; background: var(--bg); }
+window.ibr .tile-frame image { color: var(--muted); }
+window.ibr box.tile-badge { margin: 6px; padding: 3px 5px; border-radius: 5px; background: rgba(0, 0, 0, 0.6); color: #ffffff; }
+window.ibr box.view-switch > button { min-width: 30px; min-height: 26px; padding: 0 6px; border-radius: 0; border: 1px solid var(--line-strong); background: transparent; }
+window.ibr box.view-switch > button:first-child { border-radius: 6px 0 0 6px; }
+window.ibr box.view-switch > button:last-child { border-radius: 0 6px 6px 0; border-left-width: 0; }
+window.ibr box.view-switch > button:checked { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+window.ibr label.tile-name { font-size: 12px; }
+window.ibr label.tile-detail { font-size: 11px; color: var(--muted); }
+window.ibr .row-thumb picture { border-radius: 4px; }
+window.ibr .audio-player .cover { border-radius: 14px; background: var(--card); }
+window.ibr .audio-player .cover image { color: var(--muted); }
+window.ibr button.player-play { min-width: 56px; min-height: 56px; border-radius: 999px; padding: 0; }
+window.ibr button.player-button { min-width: 44px; min-height: 44px; border-radius: 999px; padding: 0; }
+window.ibr list.playlist { background: transparent; }
+window.ibr list.playlist > row { padding: 9px 10px; border-radius: 8px; }
+window.ibr list.playlist > row:hover { background: var(--card-hover); }
+window.ibr list.playlist > row:selected { background: var(--card); box-shadow: inset 2px 0 0 var(--primary); color: var(--fg); }

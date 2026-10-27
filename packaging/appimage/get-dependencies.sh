@@ -13,6 +13,9 @@ pacman -Syu --noconfirm --needed \
 	curl \
 	git \
 	glycin \
+	gst-libav \
+	gst-plugins-base \
+	gst-plugins-good \
 	gtk4 \
 	libheif \
 	libimobiledevice \
@@ -49,4 +52,5 @@ build_from_git idevicerestore "$IDEVICERESTORE_COMMIT"
 idevicerestore --help | grep -q -- '--plain-progress'
 command -v irecovery
 
-get-debloated-pkgs --add-common --prefer-nano
+# The debloated gtk4 has no GStreamer media backend, which audio and video preview and thumbnails need.
+get-debloated-pkgs --add-common --prefer-nano ! gtk4

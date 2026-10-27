@@ -20,6 +20,7 @@ export DEPLOY_PYTHON=1
 export DEPLOY_GTK=1
 export DEPLOY_GLYCIN=1
 export DEPLOY_LIBHEIF=1
+export DEPLOY_GSTREAMER=1
 export GTK_FIX_NONSENSE=1
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
 	export UPINFO="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|*$ARCH.AppImage.zsync"

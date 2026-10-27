@@ -237,6 +237,9 @@ class DemoMonitor(DeviceMonitor):
         self.emit("changed")
 
 
+DEMO_SONGS = [("Morning Light", 523.25), ("Harbour", 440.0), ("Desert Road", 392.0), ("Static Bloom", 349.23)]
+
+
 class FakeAfc:
     TREE = {
         "/": [("DCIM", True, 0), ("Downloads", True, 0), ("Books", True, 0), ("Recordings", True, 0)],
@@ -245,8 +248,9 @@ class FakeAfc:
         + [("IMG_0009.MOV", False, 84_000_000)],
     }
 
-    APP_TREE = {"/Documents": [("Movies", True, 0), ("Holiday.mkv", False, 1_900_000_000),
-                               ("Lecture.mp4", False, 620_000_000)]}
+    APP_TREE = {"/Documents": [("Movies", True, 0), ("Music", True, 0), ("Holiday.mkv", False, 1_900_000_000),
+                               ("Lecture.mp4", False, 620_000_000)],
+                "/Documents/Music": [(f"{title}.m4a", False, 7_400_000) for title, _ in DEMO_SONGS]}
 
     def __init__(self, udid, app_id=None):
         self.app_id = app_id
@@ -259,6 +263,16 @@ class FakeAfc:
     def _split(self, path):
         folder, _, name = path.rpartition("/")
         return folder or "/", name
+
+    def fetch(self, remote, target):
+        from ibr.core.afc import media_kind
+        if remote.startswith("/PhotoData/Thumbnails/"):
+            demo_thumb(Path(target), remote.split("/")[-2])
+            return True
+        if media_kind(remote, False) == "audio":
+            demo_song(Path(target))
+            return Path(target).exists()
+        return False
 
     def list(self, path, callback):
         from ibr.core.afc import RemoteEntry
@@ -283,6 +297,8 @@ class FakeAfc:
         target = Path(local_dir) / self._split(remote)[1]
         if media_kind(target.name, False) == "image":
             demo_photo(target)
+        elif media_kind(target.name, False) == "audio":
+            demo_song(target)
         else:
             target.write_text("iBR demo file: copied from the simulated device.\n")
         self._later(callback, target, None, delay=600)
@@ -292,6 +308,46 @@ class FakeAfc:
         size = local.stat().st_size if local.is_file() else 0
         self.tree.setdefault(remote_dir, []).append((local.name, local.is_dir(), size))
         self._later(callback, "", None, delay=600)
+
+
+def demo_song(path: Path):
+    """A short tone tagged like a real song, with cover art, made with ffmpeg."""
+    import subprocess
+    import tempfile
+    title = path.stem
+    pitch = dict(DEMO_SONGS).get(title, 440.0)
+    with tempfile.TemporaryDirectory() as work:
+        cover = Path(work) / "cover.png"
+        demo_thumb(cover, title)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi",
+                        "-i", f"sine=frequency={pitch}:duration=20", "-i", str(cover), "-map", "0:a", "-map", "1",
+                        "-c:a", "aac", "-c:v", "png",
+                        "-disposition:v", "attached_pic", "-metadata", f"title={title}",
+                        "-metadata", "artist=The Long Hours", "-metadata", "album=Night Drives", str(path)],
+                       check=False)
+
+
+def demo_thumb(path: Path, name: str):
+    """A small made-up photo whose colours depend on the file name."""
+    import cairo
+    import colorsys
+    hue = (sum(map(ord, name)) * 37 % 360) / 360
+    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, 256, 192)
+    cr = cairo.Context(surface)
+    sky = cairo.LinearGradient(0, 0, 0, 192)
+    sky.add_color_stop_rgb(0, *colorsys.hls_to_rgb(hue, 0.35, 0.55))
+    sky.add_color_stop_rgb(1, *colorsys.hls_to_rgb((hue + 0.1) % 1, 0.7, 0.7))
+    cr.set_source(sky)
+    cr.paint()
+    cr.set_source_rgb(*colorsys.hls_to_rgb((hue + 0.5) % 1, 0.25, 0.4))
+    cr.move_to(0, 192)
+    cr.line_to(90, 110)
+    cr.line_to(150, 150)
+    cr.line_to(210, 90)
+    cr.line_to(256, 140)
+    cr.line_to(256, 192)
+    cr.fill()
+    surface.write_to_png(str(path))
 
 
 def demo_photo(path: Path):

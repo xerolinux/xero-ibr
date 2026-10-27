@@ -46,7 +46,7 @@ def format_eta(seconds: float | None) -> str:
     if seconds is None:
         return "Estimating…"
     if seconds < 60:
-        return "Less than a minute"
+        return "Under 1 min"
     minutes = int(seconds // 60)
     if minutes < 60:
         return f"About {minutes} min"

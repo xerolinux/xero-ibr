@@ -35,6 +35,6 @@ def test_format_ago():
 
 def test_format_eta():
     assert format_eta(None) == "Estimating…"
-    assert format_eta(30) == "Less than a minute"
+    assert format_eta(30) == "Under 1 min"
     assert format_eta(7 * 60 + 10) == "About 7 min"
     assert format_eta(65 * 60) == "About 1 h 5 min"

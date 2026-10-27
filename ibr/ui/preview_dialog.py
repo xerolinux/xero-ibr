@@ -9,41 +9,57 @@ from ..core.fmt import format_size
 from ..core.preview import converter_commands
 from ..core.settings import xdg_dir
 from ..services.runner import in_thread
+from .audio_player import AudioPlayer, Song
 from .dialog import PANEL, Dialog
 from .widgets import button, hbox, label, vbox
 
 
 class PreviewDialog(Dialog):
-    def __init__(self, parent, path: Path, kind: str):
-        super().__init__(parent, path.name, *PANEL)
+    """Shows a photo or video, or plays the audio files of a folder (songs, starting at index)."""
+
+    def __init__(self, parent, path: Path | None, kind: str, songs: list[Song] | None = None, index: int = 0):
+        super().__init__(parent, songs[index].name if songs else path.name, *PANEL)
         self.set_resizable(True)
-        self._path = path
         body = vbox(0)
         stage = Gtk.Box(vexpand=True, hexpand=True)
-        stage.add_css_class("preview-stage")
         body.append(stage)
 
-        if kind == "image":
+        if songs:
+            player = AudioPlayer(songs, index)
+            player.connect("track-changed", lambda _p, track: self._show_file(track))
+            stage.append(player)
+            viewer = player
+        elif kind == "image":
             viewer = self._image(path)
             if viewer is None:
                 viewer = self._converting(path)
         else:
             viewer = self._media(path)
-        stage.append(viewer or self._unsupported())
+        if not songs:
+            stage.add_css_class("preview-stage")
+            stage.append(viewer or self._unsupported())
 
         bar = hbox(12, "preview-bar")
-        info = label(f"{path.name} · {format_size(path.stat().st_size)}", "caption", ellipsize=True)
-        info.set_hexpand(True)
-        info.set_valign(Gtk.Align.CENTER)
-        bar.append(info)
-        external = button("Open in Default App", "document-open-symbolic", "outline")
-        external.connect("clicked", lambda *_: self._open_external())
-        bar.append(external)
+        self._info = label("", "caption", ellipsize=True)
+        self._info.set_hexpand(True)
+        self._info.set_valign(Gtk.Align.CENTER)
+        bar.append(self._info)
+        self._external = button("Open in Default App", "document-open-symbolic", "outline")
+        self._external.connect("clicked", lambda *_: self._open_external())
+        bar.append(self._external)
         close = button("Close", None, "primary")
         close.connect("clicked", lambda *_: self.close())
         bar.append(close)
         body.append(bar)
         self.set_child(body)
+        self._show_file(path)
+
+    def _show_file(self, path: Path | None):
+        self._path = path
+        self._external.set_sensitive(path is not None)
+        self._info.set_label(f"{path.name} · {format_size(path.stat().st_size)}" if path else "Loading…")
+        if path:
+            self.get_titlebar().get_title_widget().set_label(path.name)
 
     def _image(self, path: Path) -> Gtk.Widget | None:
         try:
