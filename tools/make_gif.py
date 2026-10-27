@@ -109,7 +109,7 @@ def main():
     def start_download(win):
         shown = [t for t in Gtk.Window.list_toplevels() if isinstance(t, FirmwareDialog) and t.get_visible()]
         if shown:
-            shown[-1]._download_selected()
+            shown[-1]._downloader._download_selected()
 
     def keep_frame(kind, seconds):
         def take(win):
@@ -180,8 +180,11 @@ def main():
         (lambda w: scene("phone"), 1500, window_frame(1.2)),
     ]
 
+    finished = []
+
     def run(index=0):
         if index == len(script):
+            finished.append(True)
             app.quit()
             return False
         action, wait, capture = script[index]
@@ -204,6 +207,8 @@ def main():
 
     app.connect("activate", activated)
     app.run([sys.argv[0]])
+    if not finished:
+        sys.exit(f"Recording stopped early after {len(frames)} frames")
     return frames
 
 
