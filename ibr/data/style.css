@@ -487,6 +487,7 @@ window.ibr gridview.tiles > child:hover { background: var(--card-hover); }
 window.ibr gridview.tiles > child:selected { background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--primary); }
 window.ibr .tile-frame { border-radius: 8px; background: var(--bg); }
 window.ibr .tile-frame image { color: var(--muted); }
+window.ibr .tile-frame image.app-icon { border-radius: 20px; }
 window.ibr box.tile-badge { margin: 6px; padding: 3px 5px; border-radius: 5px; background: rgba(0, 0, 0, 0.6); color: #ffffff; }
 window.ibr box.view-switch > button { min-width: 30px; min-height: 26px; padding: 0 6px; border-radius: 0; border: 1px solid var(--line-strong); background: transparent; }
 window.ibr box.view-switch > button:first-child { border-radius: 6px 0 0 6px; }
@@ -516,7 +517,8 @@ window.ibr label.fetch-percent { font-size: 20px; font-weight: 800; color: var(-
 window.ibr box.drop-zone { border: 2px dashed var(--line-strong); background: transparent; }
 window.ibr box.drop-zone image { color: var(--muted); }
 window.ibr list.library-list { background: transparent; }
-window.ibr list.library-list > row { padding: 7px 8px; border-radius: 8px; }
+window.ibr list.library-list label:not(.caption):not(.badge) { font-weight: 600; }
+window.ibr list.library-list > row { padding: 6px 8px; border-radius: 8px; }
 window.ibr list.library-list > row:hover { background: var(--card-hover); }
 window.ibr list.library-list > row:selected { background: var(--info-bg); color: var(--fg); box-shadow: inset 2px 0 0 var(--primary); }
 window.ibr label.badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
@@ -524,3 +526,12 @@ window.ibr label.badge.ok { background: var(--success-bg); color: var(--success-
 window.ibr label.badge.warn { background: var(--warn-bg); color: var(--warn-fg); }
 window.ibr label.badge.muted { background: var(--card-hover); color: var(--muted); }
 window.ibr label.warning-text { font-size: 14px; font-weight: 600; }
+window.ibr .panel-heading { min-height: 32px; }
+window.ibr image.heading-icon { color: var(--accent-text); }
+window.ibr image.hero-logo { -gtk-icon-shadow: 0 6px 16px rgba(70, 72, 251, 0.35); margin-bottom: 4px; }
+window.ibr .ipsw-manager .card {
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--primary);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+}

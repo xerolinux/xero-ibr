@@ -128,8 +128,8 @@ def main():
         win.close_files()
         win.open_backup(next(e for e in win.backups if e.udid == udid))
 
-    import ibr.ui.firmware_dialog as firmware_dialog
     from ibr.ui.firmware_dialog import FirmwareDialog
+    from ibr.ui.ipsw_manager import IpswManager
     from ibr.ui.preview_dialog import PreviewDialog
     from ibr.ui.settings_window import SettingsWindow
 
@@ -144,11 +144,13 @@ def main():
             handle.truncate(total)
         return None
 
-    firmware_dialog.download_ipsw = fake_download
+    import ibr.ui.ipsw_panels as ipsw_panels
+    ipsw_panels.download_ipsw = fake_download
 
     # (action before waiting, wait in ms, capture)
     script = [
         (lambda w: (w.set_default_size(*SIZE), scene("empty")), 1500, window_frame(1.8)),
+        (lambda w: w.open_ipsw_manager(), 7000, dialog_frame(IpswManager, 2.4)),
         (lambda w: scene("trust"), 1200, window_frame(1.4)),
         (lambda w: scene("phone"), 1500, window_frame(2.0)),
         (lambda w: w.start_backup(demo.PHONE), 900, window_frame(0.5)),

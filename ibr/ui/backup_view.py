@@ -220,9 +220,9 @@ class BackupView(Gtk.Box):
         item, tile = cell.get_item(), cell.get_child()
         node = item.node
         icon = icon_for(node.name, node.is_dir)
-        texture = item.icon or self._thumb(item, lambda t: tile.item is item and tile.set_texture(t, icon))
+        texture = None if item.icon else self._thumb(item, lambda t: tile.item is item and tile.set_texture(t, icon))
         tile.show(item, node.name, self._size_text(item), icon, texture,
-                  not node.is_dir and media_kind(node.name, False) == "video")
+                  not node.is_dir and media_kind(node.name, False) == "video", item.icon)
 
     def _thumb(self, item: NodeItem, apply) -> Gdk.Texture | None:
         node, reader, entry = item.node, self._reader, self.entry

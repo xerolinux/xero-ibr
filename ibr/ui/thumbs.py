@@ -113,7 +113,8 @@ class Tile(Gtk.Box):
         self.item = None
         self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
         self.picture.set_size_request(TILE, TILE)
-        self.icon = Gtk.Image(pixel_size=48)
+        self.icon = Gtk.Image(pixel_size=48, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
+                              overflow=Gtk.Overflow.HIDDEN)
         self.badge = hbox(0, "tile-badge")
         self.badge.append(Gtk.Image(icon_name="media-playback-start-symbolic", pixel_size=12))
         self.badge.set_halign(Gtk.Align.START)
@@ -132,17 +133,27 @@ class Tile(Gtk.Box):
         texts.append(self.detail)
         self.append(texts)
 
-    def show(self, item, name: str, detail: str, icon: str, texture: Gdk.Texture | None, video: bool = False):
+    def show(self, item, name: str, detail: str, icon: str, texture: Gdk.Texture | None, video: bool = False,
+             app_icon: Gdk.Texture | None = None):
         self.item = item
         self.name.set_label(name)
         self.detail.set_label(detail)
-        self.set_texture(texture, icon)
+        if app_icon:
+            self.picture.set_visible(False)
+            self.icon.set_from_paintable(app_icon)
+            self.icon.set_pixel_size(84)
+            self.icon.add_css_class("app-icon")
+            self.icon.set_visible(True)
+        else:
+            self.set_texture(texture, icon)
         self.badge.set_visible(video)
 
     def set_texture(self, texture: Gdk.Texture | None, icon: str):
         self.picture.set_paintable(texture)
         self.picture.set_visible(texture is not None)
         self.icon.set_from_icon_name(icon)
+        self.icon.set_pixel_size(48)
+        self.icon.remove_css_class("app-icon")
         self.icon.set_visible(texture is None)
 
 

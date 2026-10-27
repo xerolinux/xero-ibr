@@ -1,28 +1,25 @@
 import time
-import urllib.parse
 from pathlib import Path
 
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+from gi.repository import Gio, GLib, Gtk
 
 from ..core.commands import firmware_cmd
 from ..core.firmware import (STEP_NAMES, FirmwareParser, FirmwareTarget, OverallPercent, SignedIpsw, StepChanged,
-                             default_choice, download_status, ipsw_choices, ipsw_matches)
+                             ipsw_matches)
 from ..core.fmt import format_size
-from ..core.ipsw_library import IpswInfo, best_for, ipsw_state, scan_folder
+from ..core.ipsw_library import best_for
 from ..core.progress import Error
 from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
-from ..services.firmware import check_tool, download_ipsw, fetch_devices, fetch_signed
+from ..services.firmware import check_tool
 from ..services.operation import Operation
-from ..services.runner import in_thread
 from .device_art import DeviceArt
 from .dialog import Dialog, confirm
-from .widgets import button, clear, hbox, label, set_button_text, set_classes, vbox
+from .ipsw_panels import IpswDownloader, IpswLibrary
+from .widgets import button, clear, hbox, label, set_classes, vbox
 
 # Wider and taller than other dialogs: two columns of controls plus the iPSW library. Still inside the main window.
 FIRMWARE_PANEL = (1040, 680)
-_BADGES = {"fits": ("Fits", "ok"), "unsigned": ("Not signed", "warn"), "other": ("Other device", "muted"),
-           "unknown": ("Unknown", "muted")}
 
 
 TOOL_HELP = {
@@ -40,21 +37,14 @@ class FirmwareDialog(Dialog):
         self._window = window
         self._device = device
         self._ipsw: str | None = None
-        self._signed = []
         self._tool = None
         self._operation = None
         self._pulse = 0
         self._seen: set[int] = set()
         self._started = 0.0
         self._erasing = False
-        self._cancel_download = False
-        self._looking_up: str | None = None
-        self._files: list[IpswInfo] = []
         self._own_signed: set[str] | None = None
         self._chosen_by_user = False
-        self._downloading = False
-        self._monitor = None
-        self._rescan_source = 0
         self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self._stack.add_named(self._choose_page(), "choose")
         self._stack.add_named(self._progress_page(), "progress")
@@ -66,12 +56,8 @@ class FirmwareDialog(Dialog):
     def _on_close(self, *_):
         if self._operation and self._operation.running:
             return True
-        self._cancel_download = True
-        if self._monitor:
-            self._monitor.cancel()
-        if self._rescan_source:
-            GLib.source_remove(self._rescan_source)
-            self._rescan_source = 0
+        self._downloader.stop()
+        self._library.stop()
         return False
 
     def _margins(self, box: Gtk.Box, value: int = 24):
@@ -119,26 +105,21 @@ class FirmwareDialog(Dialog):
             choices.attach(choice, column, 0, 1, 1)
         left.append(choices)
 
-        heading = hbox(6)
-        title = label("IPSW LIBRARY", "section-title")
-        title.set_hexpand(True)
-        title.set_valign(Gtk.Align.CENTER)
-        heading.append(title)
-        folder = button("", "folder-open-symbolic", "outline", "compact", tooltip="Change the iPSW folder")
-        folder.connect("clicked", lambda *_: self._pick_library_folder())
-        other = button("Other file…", None, "outline", "compact", tooltip="Use an .ipsw from somewhere else")
-        other.connect("clicked", lambda *_: self._choose_file())
-        heading.append(folder)
-        heading.append(other)
-        left.append(heading)
-        left.append(self._library_card())
+        self._library = IpswLibrary(self._window, self._device.product_type, other_file=self._choose_file)
+        self._library.connect("activated", lambda _l, path: self._use_file(path, chosen=True))
+        self._library.connect("changed", lambda _l, files: self._auto_pick())
+        left.append(self._library)
         page.append(left)
 
-        right = vbox(12)
-        right.set_hexpand(True)
-        right.append(label("IPSW TO DOWNLOAD", "section-title"))
-        right.append(self._download_card())
-        page.append(right)
+        self._downloader = IpswDownloader(
+            self._window, self._device.product_type, self._device.spec.name, self._device.build,
+            "It is saved to your iPSW library and checked against Apple's checksum. A file for this device is "
+            "picked to install.")
+        self._downloader.set_hexpand(True)
+        self._downloader.connect("signed", self._on_signed)
+        self._downloader.connect("downloaded", lambda _d, path: self._window.ipsw_downloaded(path))
+        self._downloader.connect("in-library", lambda _d, path: self._use_file(path, chosen=True))
+        page.append(self._downloader)
 
         footer = hbox(16)
         footer.set_margin_start(20)
@@ -157,200 +138,8 @@ class FirmwareDialog(Dialog):
         outer = vbox(0)
         outer.append(scroller)
         outer.append(footer)
-        self._pick_device(self._device.product_type)
-        fetch_devices(self._on_devices)
-        self._watch_library()
         self._refresh()
         return outer
-
-    def _library_card(self) -> Gtk.Widget:
-        card = vbox(6, "card", "library")
-        card.set_vexpand(True)
-        self._library = Gtk.ListBox(css_classes=["library-list"], selection_mode=Gtk.SelectionMode.SINGLE)
-        empty = label("No iPSW files here yet. Download one, or drop one onto this box.", "caption", wrap=True,
-                      xalign=0.5)
-        empty.set_margin_top(18)
-        empty.set_margin_bottom(18)
-        self._library.set_placeholder(empty)
-        self._library.connect("row-activated", lambda _l, row: self._use_file(row.info.path, chosen=True))
-        card.append(Gtk.ScrolledWindow(child=self._library, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER))
-        self._ipsw_label = label("", "caption", ellipsize=True)
-        self._ipsw_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        card.append(self._ipsw_label)
-        self._match = label("", "caption", wrap=True)
-        self._match.set_visible(False)
-        card.append(self._match)
-        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
-        drop.connect("drop", self._on_drop)
-        card.add_controller(drop)
-        return card
-
-    def _library_folder(self) -> Path:
-        return Path(self._window.settings.firmware_dir)
-
-    def _watch_library(self):
-        folder = self._library_folder()
-        self._ipsw_label.set_tooltip_text(str(folder))
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-            self._monitor = Gio.File.new_for_path(str(folder)).monitor_directory(Gio.FileMonitorFlags.NONE, None)
-            self._monitor.connect("changed", lambda *_: self._rescan_soon())
-        except (OSError, GLib.Error):
-            self._monitor = None
-        self._rescan()
-
-    def _rescan_soon(self):
-        if not self._rescan_source:
-            self._rescan_source = GLib.timeout_add(700, self._rescan)
-
-    def _rescan(self):
-        self._rescan_source = 0
-        folder = self._library_folder()
-        in_thread(lambda: scan_folder(folder),
-                  lambda files: folder == self._library_folder() and self._on_library(files))
-        return False
-
-    def _on_library(self, files: list[IpswInfo]):
-        self._files = files
-        model = self._device.product_type
-        signed = self._own_signed
-        self._library.remove_all()
-        for info in files:
-            row = Gtk.ListBoxRow()
-            row.info = info
-            row.set_tooltip_text(info.path)
-            content = hbox(8)
-            title = f"{info.version} ({info.build})" if info.version else Path(info.path).name
-            content.append(label(title, ellipsize=True))
-            devices = info.models[0] + (f" +{len(info.models) - 1}" if len(info.models) > 1 else "") \
-                if info.models else ""
-            detail = label(" · ".join(p for p in (devices, format_size(info.size)) if p), "caption", ellipsize=True)
-            detail.set_hexpand(True)
-            content.append(detail)
-            state = ipsw_state(info, model, signed) if model else "unknown"
-            text, css = _BADGES[state]
-            badge = label(text, "badge", css)
-            badge.set_valign(Gtk.Align.CENTER)
-            content.append(badge)
-            row.set_child(content)
-            self._library.append(row)
-        self._select_library_row()
-        self._show_ipsw()
-        if not self._chosen_by_user and model:
-            best = best_for(files, model, signed)
-            if best and best.path != self._ipsw:
-                self._use_file(best.path)
-
-    def _select_library_row(self):
-        index = 0
-        while (row := self._library.get_row_at_index(index)) is not None:
-            if row.info.path == self._ipsw:
-                self._library.select_row(row)
-                return
-            index += 1
-        self._library.unselect_all()
-
-    def _pick_library_folder(self):
-        dialog = Gtk.FileDialog(title="Choose iPSW folder", modal=True)
-        dialog.set_initial_folder(Gio.File.new_for_path(str(self._library_folder())))
-
-        def chosen(source, result):
-            try:
-                folder = source.select_folder_finish(result)
-            except GLib.Error:
-                return
-            if folder and folder.get_path():
-                self._window.settings.firmware_dir = folder.get_path()
-                self._window.settings.save()
-                self._watch_library()
-
-        dialog.select_folder(self, None, chosen)
-
-    def _download_card(self) -> Gtk.Widget:
-        card = vbox(12, "card")
-        card.set_vexpand(True)
-        pickers = Gtk.Grid(column_spacing=12, row_spacing=8)
-        self._models: list[tuple[str, str]] = []
-        self._device_names = Gtk.StringList()
-        self._devices = Gtk.DropDown(model=self._device_names, enable_search=True, hexpand=True,
-                                     expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        self._devices.update_property([Gtk.AccessibleProperty.LABEL], ["Device"])
-        self._devices.connect("notify::selected", lambda *_: self._on_device_chosen())
-        self._version_names = Gtk.StringList()
-        self._versions = Gtk.DropDown(model=self._version_names, hexpand=True, sensitive=False)
-        self._versions.update_property([Gtk.AccessibleProperty.LABEL], ["iPSW"])
-        self._versions.connect("notify::selected", lambda *_: self._show_ipsw())
-        for row, (name, widget) in enumerate((("Device", self._devices), ("iPSW", self._versions))):
-            title = label(name, "caption")
-            title.set_valign(Gtk.Align.CENTER)
-            pickers.attach(title, 0, row, 1, 1)
-            pickers.attach(widget, 1, row, 1, 1)
-        card.append(pickers)
-
-        info = hbox(10)
-        texts = vbox(2)
-        texts.set_hexpand(True)
-        self._ipsw_name = label("", "h3", selectable=True)
-        self._ipsw_name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        self._ipsw_meta = label("", "caption", wrap=True)
-        texts.append(self._ipsw_name)
-        texts.append(self._ipsw_meta)
-        info.append(texts)
-        self._copies = []
-        for icon, tooltip, field in (("edit-copy-symbolic", "Copy file name", "filename"),
-                                     ("insert-link-symbolic", "Copy Apple download link", "url")):
-            copy = button("", icon, "outline", tooltip=tooltip)
-            copy.set_valign(Gtk.Align.CENTER)
-            copy.connect("clicked", lambda _b, f=field: self._copy(getattr(self._selected_ipsw(), f)))
-            self._copies.append(copy)
-            info.append(copy)
-        self._get = button("Download…", "folder-download-symbolic", "primary")
-        self._get.set_valign(Gtk.Align.CENTER)
-        self._get.connect("clicked", lambda *_: self._download_selected())
-        info.append(self._get)
-        card.append(info)
-
-        facts = Gtk.Grid(column_spacing=16, row_spacing=6)
-        self._facts = {}
-        for row, name in enumerate(("Version", "Build", "Size", "Checksum", "From")):
-            facts.attach(label(name, "caption"), 0, row, 1, 1)
-            value = label("–", ellipsize=True, selectable=True)
-            value.set_hexpand(True)
-            facts.attach(value, 1, row, 1, 1)
-            self._facts[name] = value
-        card.append(facts)
-
-        self._fetch_idle = label("It is saved to your iPSW library and checked against Apple's checksum. A file "
-                                 "for this device is picked to install.", "caption", wrap=True)
-        self._fetch_idle.set_vexpand(True)
-        self._fetch_idle.set_valign(Gtk.Align.END)
-        card.append(self._fetch_idle)
-
-        self._fetching = vbox(8, "download-progress")
-        self._fetching.set_vexpand(True)
-        self._fetching.set_valign(Gtk.Align.END)
-        self._fetching.set_visible(False)
-        top = hbox(10)
-        self._fetch_title = label("", "h3", ellipsize=True)
-        self._fetch_title.set_hexpand(True)
-        top.append(self._fetch_title)
-        self._fetch_percent = label("", "fetch-percent")
-        top.append(self._fetch_percent)
-        self._fetching.append(top)
-        self._fetch_bar = Gtk.ProgressBar()
-        self._fetch_bar.add_css_class("thick")
-        self._fetching.append(self._fetch_bar)
-        bottom = hbox(10)
-        self._fetch_status = label("", "caption", ellipsize=True)
-        self._fetch_status.set_hexpand(True)
-        self._fetch_status.set_valign(Gtk.Align.CENTER)
-        bottom.append(self._fetch_status)
-        self._fetch_cancel = button("Cancel", None, "outline", "compact")
-        self._fetch_cancel.connect("clicked", lambda *_: self._stop_download())
-        bottom.append(self._fetch_cancel)
-        self._fetching.append(bottom)
-        card.append(self._fetching)
-        return card
 
     def _art(self) -> DeviceArt:
         art = DeviceArt(240, 330)
@@ -426,188 +215,40 @@ class FirmwareDialog(Dialog):
         page.append(column)
         return page
 
-    def _pick_device(self, model: str | None):
-        """Shows model in the Device list (before the full list arrives) and looks up what Apple signs for it."""
-        if model and model not in [m for m, _ in self._models]:
-            self._models.insert(0, (model, f"{self._device.spec.name} ({model})"))
-            self._device_names.splice(0, 0, [self._models[0][1]])
-        if model:
-            self._devices.set_selected([m for m, _ in self._models].index(model))
-        else:
-            self._show_lookup("The device did not report its model. Pick it from the Device list.")
-
-    def _on_devices(self, devices: list[tuple[str, str]]):
-        if not devices:
-            return
-        current = self._chosen_model()
-        self._models = [(m, f"{name} ({m})") for m, name in devices]
-        if current and current not in [m for m, _ in self._models]:
-            self._models.insert(0, (current, f"{self._device.spec.name} ({current})"))
-        self._device_names.splice(0, self._device_names.get_n_items(), [name for _, name in self._models])
-        if current:
-            self._devices.set_selected([m for m, _ in self._models].index(current))
-
-    def _chosen_model(self) -> str | None:
-        index = self._devices.get_selected()
-        return self._models[index][0] if 0 <= index < len(self._models) else None
-
-    def _on_device_chosen(self):
-        model = self._chosen_model()
-        if not model or self._looking_up == model:
-            return
-        self._looking_up = model
-        self._signed = []
-        self._version_names.splice(0, self._version_names.get_n_items(), [])
-        self._show_lookup(f"Checking which iPSW Apple signs for {model}…")
-        fetch_signed(model, lambda signed: model == self._chosen_model() and self._on_signed(model, signed))
-
-    def _show_lookup(self, text: str):
-        self._versions.set_sensitive(False)
-        self._ipsw_name.set_label("")
-        self._ipsw_meta.set_label(text)
-        for value in self._facts.values():
-            value.set_label("–")
-        for widget in (*self._copies, self._get):
-            widget.set_sensitive(False)
-
-    def _on_signed(self, model: str, signed):
-        if signed is None:
-            self._show_lookup(f"Could not look up the iPSW for {model}. Check the internet connection.")
-            return
-        if not signed:
-            self._show_lookup(f"Apple does not sign any iPSW for {model} right now.")
-            return
-        self._signed = signed
-        own = model == self._device.product_type
-        if own:
-            self._own_signed = {ipsw.build for ipsw in signed}
-            self._on_library(self._files)
-        self._version_names.splice(0, self._version_names.get_n_items(),
-                                   ipsw_choices(signed, self._device.build if own else None))
-        self._versions.set_selected(default_choice(signed, self._device.build if own else None))
-        self._versions.set_sensitive(len(signed) > 1)
-        self._show_ipsw()
-
-    def _selected_ipsw(self) -> SignedIpsw | None:
-        index = self._versions.get_selected()
-        return self._signed[index] if 0 <= index < len(self._signed) else None
-
-    def _show_ipsw(self):
-        ipsw = self._selected_ipsw()
-        if ipsw is None:
-            return
-        self._ipsw_name.set_label(ipsw.filename)
-        size = f" · {format_size(ipsw.size)}" if ipsw.size else ""
-        self._ipsw_meta.set_label(f"{ipsw.version} ({ipsw.build}){size}")
-        self._facts["Version"].set_label(ipsw.version)
-        self._facts["Build"].set_label(ipsw.build)
-        self._facts["Size"].set_label(format_size(ipsw.size) if ipsw.size else "Unknown")
-        self._facts["Checksum"].set_label(f"SHA-256 {ipsw.sha256[:16]}…" if ipsw.sha256 else "Not published")
-        self._facts["From"].set_label(urllib.parse.urlsplit(ipsw.url).hostname or "Apple")
-        have = (self._library_folder() / ipsw.filename).exists()
-        set_button_text(self._get, "In library" if have else "Download…")
-        for widget in self._copies:
-            widget.set_sensitive(not self._downloading)
-        self._get.set_sensitive(not self._downloading and not have)
-
-    def _download_selected(self):
-        ipsw = self._selected_ipsw()
-        if ipsw is None:
-            return
-        target = self._library_folder() / ipsw.filename
-        if target.exists():
-            self._use_file(str(target), chosen=True)
-            return
-        self._start_download(ipsw, target)
-
-    def _start_download(self, ipsw: SignedIpsw, target: Path):
-        self._cancel_download = False
-        self._downloading = True
-        self._fetch_title.set_label(f"Downloading {ipsw.version} ({ipsw.build})")
-        self._fetch_percent.set_label("0%")
-        self._fetch_bar.set_fraction(0)
-        self._fetch_status.set_label("Starting…")
-        self._fetch_cancel.set_visible(True)
-        self._fetching.set_visible(True)
-        self._fetch_idle.set_visible(False)
-        for widget in (*self._copies, self._get, self._devices, self._versions):
-            widget.set_sensitive(False)
-        meter = {"time": time.monotonic(), "done": 0, "speed": 0.0, "shown": 0.0}
-
-        def progress(done: int, total: int | None):
-            now = time.monotonic()
-            if now - meter["time"] >= 0.5:
-                rate = (done - meter["done"]) / (now - meter["time"])
-                meter["speed"] = rate if not meter["speed"] else meter["speed"] * 0.7 + rate * 0.3
-                meter["time"], meter["done"] = now, done
-            if now - meter["shown"] >= 0.25 or done == total:
-                meter["shown"] = now
-                GLib.idle_add(self._show_download, done, total or ipsw.size, meter["speed"])
-
-        def work():
-            return download_ipsw(ipsw.url, target, ipsw.sha256, progress, lambda: self._cancel_download)
-
-        in_thread(work, lambda error: self._download_finished(target, error))
-
-    def _show_download(self, done: int, total: int | None, speed: float):
-        if total:
-            self._fetch_bar.set_fraction(min(done / total, 1.0))
-            self._fetch_percent.set_label(f"{done * 100 // total}%")
-        self._fetch_status.set_label(download_status(done, total, speed))
-        return False
-
-    def _stop_download(self):
-        self._cancel_download = True
-        self._fetch_cancel.set_sensitive(False)
-        self._fetch_status.set_label("Cancelling…")
-
-    def _download_finished(self, target: Path, error: str | None):
-        self._downloading = False
-        self._fetch_cancel.set_sensitive(True)
-        self._devices.set_sensitive(True)
-        self._versions.set_sensitive(len(self._signed) > 1)
-        self._show_ipsw()
-        if error:
-            self._fetching.set_visible(error != "Cancelled")
-            self._fetch_idle.set_visible(error == "Cancelled")
-            self._fetch_title.set_label("Download stopped")
-            self._fetch_percent.set_label("")
-            self._fetch_status.set_label(error)
-            self._fetch_cancel.set_visible(False)
-            return
-        self._fetch_title.set_label("Downloaded")
-        self._fetch_percent.set_label("100%")
-        self._fetch_bar.set_fraction(1.0)
-        self._fetch_status.set_label(f"Saved to {target}")
-        self._fetch_cancel.set_visible(False)
-        model = self._device.product_type
-        if model and ipsw_matches(target.name, model):
-            self._use_file(str(target), chosen=True)
-        self._rescan()
-
-    def _copy(self, text: str):
-        self.get_clipboard().set_content(
-            Gdk.ContentProvider.new_for_bytes("text/plain;charset=utf-8", GLib.Bytes.new(text.encode())))
-
     def _on_tool(self, state: str):
         self._tool = state
         self._refresh()
 
-    def _on_drop(self, _target, value, _x, _y) -> bool:
-        files = [f.get_path() for f in value.get_files() if f.get_path() and f.get_path().endswith(".ipsw")]
-        if not files:
-            return False
-        self._use_file(files[0], chosen=True)
-        return True
+    def _on_signed(self, _downloader, model: str, signed: list[SignedIpsw]):
+        if model == self._device.product_type:
+            self._own_signed = {ipsw.build for ipsw in signed}
+            self._library.set_signed(self._own_signed)
+            self._auto_pick()
+
+    def _auto_pick(self):
+        """Until someone picks a file, the newest one Apple signs for this device is used."""
+        model = self._device.product_type
+        if self._chosen_by_user or not model:
+            self._refresh()
+            return
+        best = best_for(self._library.files, model, self._own_signed)
+        if best and best.path != self._ipsw:
+            self._use_file(best.path)
+        else:
+            self._refresh()
+
+    def take_download(self, path: str):
+        """A new iPSW in the library, from this window or the iPSW Manager: used when it is for this device."""
+        model = self._device.product_type
+        if model and ipsw_matches(Path(path).name, model):
+            self._use_file(path, chosen=True)
+        self._library.rescan()
 
     def _use_file(self, path: str, chosen: bool = False):
         self._ipsw = path
         self._chosen_by_user = self._chosen_by_user or chosen
-        name = Path(path).name
-        match = next((i for i, ipsw in enumerate(self._signed) if ipsw.filename == name), None)
-        if match is not None:
-            self._versions.set_selected(match)
-        self._select_library_row()
+        self._library.select(path)
+        self._downloader.select_file(Path(path).name)
         self._refresh()
 
     def _choose_file(self):
@@ -630,28 +271,26 @@ class FirmwareDialog(Dialog):
         dialog.open(self, None, chosen)
 
     def _file_ok(self) -> bool:
+        status, note, folder = self._library.status, self._library.note, self._library.folder()
         if not self._ipsw:
-            self._ipsw_label.set_label(f"Folder: {self._library_folder()}")
-            self._match.set_visible(False)
+            status.set_label(f"Folder: {folder}")
+            note.set_visible(False)
             return False
         path = Path(self._ipsw)
         size = path.stat().st_size if path.is_file() else 0
-        outside = path.parent != self._library_folder()
-        self._ipsw_label.set_label(f"Using {path} · {format_size(size)}" if outside
-                                   else f"Folder: {self._library_folder()}")
+        status.set_label(f"Using {path} · {format_size(size)}" if path.parent != folder else f"Folder: {folder}")
         model = self._device.product_type
-        info = next((f for f in self._files if f.path == str(path) and f.models), None)
+        info = next((f for f in self._library.files if f.path == str(path) and f.models), None)
         match = (model in info.models if info else ipsw_matches(path.name, model)) if model else None
-        self._match.set_visible(match is not True)
+        note.set_visible(match is not True)
         if match is False:
-            self._match.set_label(f"This file is not for {self._device.product_type}. Choose the firmware for this "
-                                  "model.")
-            set_classes(self._match, "device-status", "warn", keep=("caption",))
+            note.set_label(f"This file is not for {model}. Choose the firmware for this model.")
+            set_classes(note, "device-status", "warn", keep=("caption",))
             return False
         if match is None:
-            self._match.set_label(f"The file name does not say which model it is for. Make sure it is for "
-                                  f"{self._device.product_type or 'this device'}.")
-            set_classes(self._match, keep=("caption",))
+            note.set_label(f"The file name does not say which model it is for. Make sure it is for "
+                           f"{model or 'this device'}.")
+            set_classes(note, keep=("caption",))
         return True
 
     def _refresh(self):

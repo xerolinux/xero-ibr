@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8a88ff"/>
+      <stop offset="1" stop-color="#4648fb"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6e6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#bg)"/>
+  <path d="M36 20h40l20 20v62a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="url(#sheet)"/>
+  <path d="M76 20v14a6 6 0 0 0 6 6h14z" fill="#b9b8ff"/>
+  <path d="M63 36v28" fill="none" stroke="#4648fb" stroke-width="7" stroke-linecap="round"/>
+  <path d="M51 53l12 12 12-12" fill="none" stroke="#4648fb" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="38" y="78" width="50" height="20" rx="6" fill="#4648fb"/>
+  <text x="63" y="93" text-anchor="middle" font-family="Inter, Noto Sans, sans-serif" font-size="15" font-weight="800" fill="#fff" letter-spacing="1">iPSW</text>
+</svg>

@@ -35,6 +35,7 @@ def default_settings_path() -> Path:
 class Settings:
     backup_dir: str = field(default_factory=lambda: str(default_backup_dir()))
     firmware_dir: str = field(default_factory=lambda: str(default_firmware_dir()))
+    ipsw_device: str = ""
     keep_history: int = 3
     always_full: bool = False
     warn_low_space: bool = True

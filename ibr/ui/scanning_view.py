@@ -86,6 +86,11 @@ class ScanningView(Gtk.Box):
         texts.append(self._title)
         texts.append(self._subtitle)
         self.append(texts)
+        self.tool = button("iPSW Manager", "folder-download-symbolic", "outline")
+        self.tool.set_halign(Gtk.Align.CENTER)
+        self.tool.set_tooltip_text("Download and manage iPSW files, no device needed")
+        self.tool.set_visible(False)
+        self.append(self.tool)
         self._chips = hbox(12)
         self._chips.set_halign(Gtk.Align.CENTER)
         self.append(self._chips)
@@ -97,7 +102,8 @@ class ScanningView(Gtk.Box):
         self.append(self._action)
 
     def show(self, title: str, subtitle: str, chips: list[tuple[str, str]], animating: bool = True,
-             action: tuple[str, object] | None = None):
+             action: tuple[str, object] | None = None, tool: bool = False):
+        self.tool.set_visible(tool)
         self._action.set_visible(action is not None)
         if action:
             self._action.set_label(action[0])

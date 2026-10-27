@@ -31,6 +31,7 @@ from .backups_window import BackupsWindow
 from .device_view import DeviceView
 from .dialog import alert, confirm
 from .files_view import FilesView
+from .ipsw_manager import IpswManager
 from .firmware_dialog import FirmwareDialog
 from .recovery_view import RecoveryView
 from .password_dialog import PasswordDialog
@@ -88,6 +89,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._inhibit = 0
         self._auto_done: set[str] = set()
         self._op_active = False
+        self._ipsw_manager = None
         self._quit_after = False
         self._attempt = 1
         self._retry_source = 0
@@ -120,6 +122,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hexpand=True,
                                 hhomogeneous=False, vhomogeneous=False)
         self.scanning = ScanningView()
+        self.scanning.tool.connect("clicked", lambda *_: self.open_ipsw_manager())
         self._stack.add_named(self.scanning, "scan")
         self.device_view = DeviceView()
         scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
@@ -189,7 +192,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
         items = vbox(2, "app-menu")
         menu = Gtk.Popover(child=items)
-        for text, icon, action in (("Settings", "emblem-system-symbolic", self.open_settings),
+        for text, icon, action in (("iPSW Manager", "folder-download-symbolic", self.open_ipsw_manager),
+                                   ("Settings", "emblem-system-symbolic", self.open_settings),
                                    ("About iBR", "help-about-symbolic", lambda: AboutWindow(self).present())):
             item = button(text, icon, "flat", "menu-item")
             item.get_child().set_halign(Gtk.Align.START)
@@ -477,7 +481,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._stack.set_visible_child_name("scan")
                 return
             self.scanning.show("Looking for your iPhone or iPad", subtitle,
-                               [daemon, ("Plug in with USB", "todo"), ("Unlock and tap Trust", "todo")])
+                               [daemon, ("Plug in with USB", "todo"), ("Unlock and tap Trust", "todo")], tool=True)
             self._stack.set_visible_child_name("scan")
             return
         if device.state in ("checking", "trust", "error"):
@@ -779,6 +783,19 @@ class MainWindow(Gtk.ApplicationWindow):
         self._files_open = False
         self._sidebar_toggle.set_active(True)
         self.refresh_ui()
+
+    def ipsw_downloaded(self, path: str):
+        """Lets every open firmware window pick up an iPSW downloaded from any of them or the iPSW Manager."""
+        for window in Gtk.Window.list_toplevels():
+            if isinstance(window, FirmwareDialog) and window.get_visible():
+                window.take_download(path)
+
+    def open_ipsw_manager(self):
+        if self._ipsw_manager and self._ipsw_manager.get_visible():
+            self._ipsw_manager.present()
+            return
+        self._ipsw_manager = IpswManager(self)
+        self._ipsw_manager.present()
 
     def open_settings(self):
         SettingsWindow(self).present()
