@@ -17,7 +17,6 @@ class DeviceView(Gtk.Box):
         "files": (GObject.SignalFlags.RUN_FIRST, None, ()),
         "software": (GObject.SignalFlags.RUN_FIRST, None, ()),
         "cancel": (GObject.SignalFlags.RUN_FIRST, None, ()),
-        "encrypt-toggled": (GObject.SignalFlags.RUN_FIRST, None, (bool,)),
     }
 
     def __init__(self):
@@ -68,11 +67,6 @@ class DeviceView(Gtk.Box):
         self._identifiers = label("", "caption", wrap=True)
         idle.append(self._identifiers)
 
-        self._encrypt = Gtk.CheckButton(label="Encrypt local backup (keeps passwords, Health and Wi\u2011Fi data)")
-        self._encrypt.get_last_child().set_wrap(True)
-        self._encrypt_handler = self._encrypt.connect("toggled", self._on_encrypt)
-        idle.append(self._encrypt)
-
         actions = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
         self._backup = button("Back Up Now", "document-save-symbolic", "primary", "big")
         self._restore = button("Restore Backup", "document-revert-symbolic", "outline", "big")
@@ -109,15 +103,6 @@ class DeviceView(Gtk.Box):
     _busy = False
     _udid = None
     _home = None
-
-    def _on_encrypt(self, check):
-        self.emit("encrypt-toggled", check.get_active())
-
-    def set_encrypt(self, active: bool | None):
-        self._encrypt.handler_block(self._encrypt_handler)
-        self._encrypt.set_active(bool(active))
-        self._encrypt.set_inconsistent(active is None)
-        self._encrypt.handler_unblock(self._encrypt_handler)
 
     def update(self, info: DeviceInfo, latest: BackupEntry | None, latest_size: str | None,
                show_identifiers: bool, has_backups: bool, home=None):
@@ -161,8 +146,6 @@ class DeviceView(Gtk.Box):
 
         self._identifiers.set_visible(show_identifiers)
         self._identifiers.set_label(f"Serial {info.serial} · UDID {info.udid}")
-        self.set_encrypt(info.will_encrypt)
-        self._encrypt.set_sensitive(supported and info.will_encrypt is not None)
         self._backup.set_sensitive(supported)
         self._restore.set_sensitive(supported and has_backups)
         self._manage.set_sensitive(has_backups)

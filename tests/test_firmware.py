@@ -150,3 +150,30 @@ def test_default_choice_prefers_installed_then_latest_release():
     assert default_choice([RC, BETA, RELEASE], "24B9999") == 2
     assert default_choice([RC, BETA, RELEASE], None) == 2
     assert default_choice([RC, BETA], None) == 0
+
+
+def test_ipsw_devices_lists_supported_phones_and_pads_newest_first():
+    import json
+
+    from ibr.core.firmware import ipsw_devices
+    data = json.dumps([
+        {"name": "iPhone 6", "identifier": "iPhone7,2"},
+        {"name": "iPhone 16 Pro", "identifier": "iPhone17,1"},
+        {"name": "iPhone 6s", "identifier": "iPhone8,1"},
+        {"name": "iPad Pro 11-inch (M4)", "identifier": "iPad16,3"},
+        {"name": "iPad Air 2", "identifier": "iPad5,3"},
+        {"name": "iPad (4th gen)", "identifier": "iPad3,4"},
+        {"name": "Apple TV 4K", "identifier": "AppleTV6,2"},
+        {"name": "iPhone 16", "identifier": "iPhone17,3"},
+        "junk",
+    ]).encode()
+    assert ipsw_devices(data) == [("iPhone17,3", "iPhone 16"), ("iPhone17,1", "iPhone 16 Pro"),
+                                  ("iPhone8,1", "iPhone 6s"), ("iPad16,3", "iPad Pro 11-inch (M4)"),
+                                  ("iPad5,3", "iPad Air 2")]
+    assert ipsw_devices(b"junk") == []
+
+
+def test_download_status():
+    from ibr.core.firmware import download_status
+    assert download_status(1_200_000_000, 6_800_000_000, 24_000_000) == "1.2 GB of 6.8 GB · 24 MB/s · About 3 min left"
+    assert download_status(0, None, 0) == "Starting…"

@@ -98,7 +98,7 @@ class BackupView(Gtk.Box):
         path_row.append(self._up)
         crumbs, self._crumbs = crumb_bar()
         path_row.append(crumbs)
-        self._switch = ViewSwitch(window.settings.backup_view_mode)
+        self._switch = ViewSwitch(window.settings.backup_layout)
         self._switch.connect("changed", lambda _s, mode: self._set_mode(mode))
         path_row.append(self._switch)
         self.append(path_row)
@@ -142,7 +142,7 @@ class BackupView(Gtk.Box):
         self._views = Gtk.Stack(vexpand=True)
         self._views.add_named(frame, "list")
         self._views.add_named(grid_frame, "grid")
-        self._views.set_visible_child_name(self._window.settings.backup_view_mode)
+        self._views.set_visible_child_name(self._window.settings.backup_layout)
         self._empty = label("", "caption", xalign=0.5)
         self._empty.set_can_target(False)
         overlay = Gtk.Overlay(child=self._views)
@@ -253,7 +253,7 @@ class BackupView(Gtk.Box):
             return
         self._views.set_visible_child_name(mode)
         self._switch.select(mode)
-        self._window.settings.backup_view_mode = mode
+        self._window.settings.backup_layout = mode
         self._window.settings.save()
 
     @staticmethod

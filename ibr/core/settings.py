@@ -14,6 +14,19 @@ def default_backup_dir() -> Path:
     return xdg_dir("XDG_DATA_HOME", ".local/share") / "ibr" / "backups"
 
 
+def default_firmware_dir() -> Path:
+    """An iPSW folder inside the user's Downloads folder, as xdg-user-dirs names it."""
+    downloads = Path.home() / "Downloads"
+    try:
+        for line in (xdg_dir("XDG_CONFIG_HOME", ".config") / "user-dirs.dirs").read_text().splitlines():
+            if line.startswith("XDG_DOWNLOAD_DIR="):
+                value = line.split("=", 1)[1].strip().strip('"').replace("$HOME", str(Path.home()))
+                downloads = Path(value) if value else downloads
+    except OSError:
+        pass
+    return downloads / "iPSW"
+
+
 def default_settings_path() -> Path:
     return xdg_dir("XDG_CONFIG_HOME", ".config") / "ibr" / "settings.json"
 
@@ -21,6 +34,7 @@ def default_settings_path() -> Path:
 @dataclass
 class Settings:
     backup_dir: str = field(default_factory=lambda: str(default_backup_dir()))
+    firmware_dir: str = field(default_factory=lambda: str(default_firmware_dir()))
     keep_history: int = 3
     always_full: bool = False
     warn_low_space: bool = True
@@ -37,8 +51,8 @@ class Settings:
     keep_awake: bool = True
     theme: str = "dark"
     show_identifiers: bool = False
-    files_view_mode: str = "list"
-    backup_view_mode: str = "list"
+    files_layout: str = "grid"
+    backup_layout: str = "grid"
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":

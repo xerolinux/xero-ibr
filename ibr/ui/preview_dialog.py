@@ -1,4 +1,5 @@
 import hashlib
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from ..core.fmt import format_size
-from ..core.preview import converter_commands
+from ..core.preview import codec_hint, converter_commands
 from ..core.settings import xdg_dir
 from ..services.runner import in_thread
 from .audio_player import AudioPlayer, Song
@@ -37,7 +38,7 @@ class PreviewDialog(Dialog):
             viewer = self._media(path)
         if not songs:
             stage.add_css_class("preview-stage")
-            stage.append(viewer or self._unsupported())
+            stage.append(viewer or self._unsupported(media=kind != "image"))
 
         bar = hbox(12, "preview-bar")
         self._info = label("", "caption", ellipsize=True)
@@ -52,7 +53,7 @@ class PreviewDialog(Dialog):
         bar.append(close)
         body.append(bar)
         self.set_child(body)
-        self._show_file(path)
+        self._show_file(player.path if songs else path)
 
     def _show_file(self, path: Path | None):
         self._path = path
@@ -112,7 +113,7 @@ class PreviewDialog(Dialog):
         stream.connect("notify::error", lambda s, _p: s.get_error() and self._swap(video))
         return video
 
-    def _unsupported(self) -> Gtk.Widget:
+    def _unsupported(self, media: bool = False) -> Gtk.Widget:
         box = vbox(10)
         box.set_halign(Gtk.Align.CENTER)
         box.set_valign(Gtk.Align.CENTER)
@@ -121,14 +122,19 @@ class PreviewDialog(Dialog):
         icon.set_pixel_size(48)
         box.append(icon)
         box.append(label("iBR cannot show this format.", "h3", xalign=0.5))
-        box.append(label("Use Open in Default App to view it with your system viewer.", "caption", xalign=0.5))
+        hint = (codec_hint(bool(os.environ.get("APPIMAGE"))) if media
+                else "Use Open in Default App to view it with your system viewer.")
+        text = label(hint, "caption", xalign=0.5, wrap=True)
+        text.set_max_width_chars(60)
+        text.set_justify(Gtk.Justification.CENTER)
+        box.append(text)
         return box
 
     def _swap(self, widget: Gtk.Widget):
         parent = widget.get_parent()
         if parent:
             parent.remove(widget)
-            parent.append(self._unsupported())
+            parent.append(self._unsupported(media=True))
 
     def _open_external(self):
         Gtk.FileLauncher.new(Gio.File.new_for_path(str(self._path))).launch(self, None, None)

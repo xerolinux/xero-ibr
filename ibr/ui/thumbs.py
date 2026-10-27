@@ -84,7 +84,7 @@ class ThumbLoader:
 
 
 class ViewSwitch(Gtk.Box):
-    """List / Grid toggle for a file browser."""
+    """Grid / List toggle for a file browser."""
 
     __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, (str,))}
 
@@ -92,8 +92,8 @@ class ViewSwitch(Gtk.Box):
         super().__init__(css_classes=["linked", "view-switch"])
         self._buttons = {}
         group = None
-        for name, icon, tooltip in (("list", "view-list-symbolic", "List view"),
-                                    ("grid", "view-grid-symbolic", "Grid view")):
+        for name, icon, tooltip in (("grid", "view-grid-symbolic", "Grid view"),
+                                    ("list", "view-list-symbolic", "List view")):
             toggle = Gtk.ToggleButton(icon_name=icon, tooltip_text=tooltip, group=group, active=name == mode)
             toggle.update_property([Gtk.AccessibleProperty.LABEL], [tooltip])
             toggle.connect("toggled", lambda b, n=name: b.get_active() and self.emit("changed", n))

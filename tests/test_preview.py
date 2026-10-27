@@ -9,3 +9,10 @@ def test_converter_commands_prefer_libheif_then_imagemagick():
 
 def test_converter_commands_none_available():
     assert converter_commands("/in/a.heic", "/out/a.png", lambda tool: False) == []
+
+
+def test_codec_hint_names_packages_outside_the_appimage():
+    from ibr.core.preview import codec_hint
+    assert "gst-libav" in codec_hint(appimage=False)
+    assert "gst-plugins-ugly" in codec_hint(appimage=False)
+    assert "gst-libav" not in codec_hint(appimage=True)

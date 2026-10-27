@@ -14,8 +14,10 @@ pacman -Syu --noconfirm --needed \
 	git \
 	glycin \
 	gst-libav \
+	gst-plugins-bad \
 	gst-plugins-base \
 	gst-plugins-good \
+	gst-plugins-ugly \
 	gtk4 \
 	libheif \
 	libimobiledevice \

@@ -63,6 +63,21 @@ def make_backup(root: Path, udid: str, name: str, product: str, version: str, wh
         handle.truncate(size)
 
 
+DEMO_IPSWS = ("iPhone17,1_26.1_23B85_Restore.ipsw", "iPhone17,1_26.0.1_23A355_Restore.ipsw",
+              "iPad16,5_iPad16,6_26.1_23B85_Restore.ipsw")
+
+
+def seed_firmware(settings):
+    """Sparse stand-ins for downloaded iPSWs, in a library folder inside the sandbox."""
+    firmware = sandbox / "Firmware"
+    firmware.mkdir(exist_ok=True)
+    for name in DEMO_IPSWS:
+        with open(firmware / name, "wb") as handle:
+            handle.truncate(9_100_000_000)
+    settings.firmware_dir = str(firmware)
+    settings.save()
+
+
 def seed_backups(root: Path):
     now = datetime.now()
     for days, size in ((23, 39_900_000_000), (9, 40_800_000_000), (2, 41_200_000_000)):
@@ -488,12 +503,8 @@ def main():
     settings.theme = opts.theme
     settings.save()
     seed_backups(Path(settings.backup_dir))
-    firmware = sandbox / "Firmware"
-    firmware.mkdir(exist_ok=True)
-    for name in ("iPhone17,1_26.1_23B85_Restore.ipsw", "iPad16,5_iPad16,6_26.1_23B85_Restore.ipsw"):
-        with open(firmware / name, "wb") as handle:
-            handle.truncate(9_100_000_000)
-    print(f"Demo firmware files: {firmware}", flush=True)
+    seed_firmware(settings)
+    print(f"Demo firmware files: {settings.firmware_dir}", flush=True)
     install_simulation()
     monitor = DemoMonitor()
     app = Application(monitor)

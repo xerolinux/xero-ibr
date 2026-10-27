@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 
 from .catalog import ModelSpec, lookup
+from .fmt import format_eta, format_size, format_speed
 from .progress import Error, Finished
 
 
@@ -71,7 +72,7 @@ def signed_ipsws(data: bytes) -> list[SignedIpsw]:
     return found
 
 
-def _build_order(build: str) -> tuple:
+def build_order(build: str) -> tuple:
     match = re.match(r"(\d+)([A-Z])(\d+)([a-z]?)$", build)
     if not match:
         return (0, "", 0, 0)
@@ -91,8 +92,8 @@ def appledb_candidates(index: bytes, os_name: str) -> list[str]:
     builds = [k for k in keys if isinstance(k, str) and re.fullmatch(rf"{os_name};\d+[A-Z]\d+[a-z]?", k)]
     if not builds:
         return []
-    newest = max(_build_order(k.split(";")[1])[0] for k in builds)
-    return [k for k in builds if _build_order(k.split(";")[1])[0] == newest]
+    newest = max(build_order(k.split(";")[1])[0] for k in builds)
+    return [k for k in builds if build_order(k.split(";")[1])[0] == newest]
 
 
 def appledb_signed_ipsw(data: bytes, product_type: str) -> SignedIpsw | None:
@@ -117,7 +118,7 @@ def appledb_signed_ipsw(data: bytes, product_type: str) -> SignedIpsw | None:
 
 def merge_signed(*lists: list[SignedIpsw]) -> list[SignedIpsw]:
     unique = {ipsw.build: ipsw for items in lists for ipsw in items}
-    return sorted(unique.values(), key=lambda ipsw: _build_order(ipsw.build), reverse=True)
+    return sorted(unique.values(), key=lambda ipsw: build_order(ipsw.build), reverse=True)
 
 
 def _latest_release(signed: list[SignedIpsw]) -> int | None:
@@ -208,3 +209,32 @@ class FirmwareParser:
         if line.startswith("ERROR: "):
             return [Error(line[len("ERROR: "):])]
         return []
+
+
+_SUPPORTED_FROM = {"iPhone": 8, "iPad": 5}
+
+
+def ipsw_devices(data: bytes) -> list[tuple[str, str]]:
+    """(identifier, name) of every iPhone and iPad new enough for iOS/iPadOS 15, from api.ipsw.me v4 devices,
+    iPhones first and newest first."""
+    try:
+        devices = json.loads(data)
+    except ValueError:
+        return []
+    found = []
+    for device in devices if isinstance(devices, list) else []:
+        if not isinstance(device, dict):
+            continue
+        match = re.fullmatch(r"(iPhone|iPad)(\d+),(\d+)", str(device.get("identifier", "")))
+        if match and int(match[2]) >= _SUPPORTED_FROM[match[1]] and device.get("name"):
+            found.append(((match[1] != "iPhone", -int(match[2]), -int(match[3])), match[0], str(device["name"])))
+    return [(identifier, name) for _, identifier, name in sorted(found)]
+
+
+def download_status(done: int, total: int | None, speed: float) -> str:
+    if not done:
+        return "Starting…"
+    parts = [f"{format_size(done)} of {format_size(total)}" if total else format_size(done), format_speed(speed)]
+    if total and speed > 0:
+        parts.append(f"{format_eta((total - done) / speed)} left")
+    return " · ".join(parts)

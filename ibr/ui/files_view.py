@@ -145,7 +145,7 @@ class FilesView(Gtk.Box):
         path_row.append(self._up)
         crumbs, self._crumbs = crumb_bar()
         path_row.append(crumbs)
-        self._switch = ViewSwitch(window.settings.files_view_mode)
+        self._switch = ViewSwitch(window.settings.files_layout)
         self._switch.connect("changed", lambda _s, mode: self._set_mode(mode))
         path_row.append(self._switch)
         main.append(path_row)
@@ -175,7 +175,7 @@ class FilesView(Gtk.Box):
         self._views = Gtk.Stack(vexpand=True)
         self._views.add_named(frame, "list")
         self._views.add_named(grid_frame, "grid")
-        self._views.set_visible_child_name(window.settings.files_view_mode)
+        self._views.set_visible_child_name(window.settings.files_layout)
         self._empty = label("", "caption", xalign=0.5)
         overlay = Gtk.Overlay(child=self._views)
         overlay.add_overlay(self._empty)
@@ -291,7 +291,7 @@ class FilesView(Gtk.Box):
             return
         self._views.set_visible_child_name(mode)
         self._switch.select(mode)
-        self._window.settings.files_view_mode = mode
+        self._window.settings.files_layout = mode
         self._window.settings.save()
 
     def show_device(self, udid: str, name: str):

@@ -25,7 +25,12 @@ class SettingsWindow(Dialog):
 
         self._folder_label = label(self._settings.backup_dir, "row-sub", wrap=True)
         folder = button("Change…", None, "outline")
-        folder.connect("clicked", self._pick_folder)
+        folder.connect("clicked", lambda *_: self._pick_folder("backup_dir", "Choose backup folder",
+                                                               self._folder_label))
+        self._firmware_label = label(self._settings.firmware_dir, "row-sub", wrap=True)
+        firmware = button("Change…", None, "outline")
+        firmware.connect("clicked", lambda *_: self._pick_folder("firmware_dir", "Choose iPSW folder",
+                                                                 self._firmware_label))
         keep = Gtk.SpinButton.new_with_range(1, 10, 1)
         keep.set_value(self._settings.keep_history)
         keep.set_valign(Gtk.Align.CENTER)
@@ -33,6 +38,7 @@ class SettingsWindow(Dialog):
         keep.connect("value-changed", lambda spin: self._set("keep_history", int(spin.get_value())))
         body.append(self._section("Backups", [
             self._row("Backup folder", None, folder, sub_widget=self._folder_label),
+            self._row("iPSW folder", None, firmware, sub_widget=self._firmware_label),
             self._row("Backups to keep per device", "Older backups are deleted after a new one finishes. "
                       "Unchanged files are shared between backups, so extra copies use little space.", keep),
             self._switch("Always make a full backup", "Ignore the previous backup and copy everything again.",
@@ -53,6 +59,7 @@ class SettingsWindow(Dialog):
                 show.connect("clicked", lambda _b, n=name, s=secret: self._reveal(n, s))
                 saved_rows.append(self._row(f"Saved password: {name}", "Shown only after you confirm.", show))
         body.append(self._section("Encryption", [
+            self._encryption_row(window, device, change),
             self._switch("Remember passwords in the keyring", "Stored with your desktop's Secret Service "
                          "(GNOME Keyring or KWallet).", "remember_password"),
             self._row("Change backup password", "Needs a connected device with encryption on.", change),
@@ -135,6 +142,30 @@ class SettingsWindow(Dialog):
             row.append(control)
         return row
 
+    def _encryption_row(self, window, device, change: Gtk.Button) -> Gtk.Widget:
+        """Turning encryption on or off happens on the device and asks for its password in a dialog."""
+        known = device is not None and device.will_encrypt is not None
+        switch = Gtk.Switch(active=bool(device and device.will_encrypt), sensitive=known)
+        title = f"Encrypt backups of {device.name}" if device else "Encrypt backups"
+        switch.update_property([Gtk.AccessibleProperty.LABEL], [title])
+
+        def applied(enabled: bool):
+            switch.handler_block(handler)
+            switch.set_active(enabled)
+            switch.handler_unblock(handler)
+            switch.set_sensitive(True)
+            change.set_sensitive(enabled)
+
+        def toggled(sw, _pspec):
+            sw.set_sensitive(False)
+            window.set_encryption(sw.get_active(), applied)
+
+        handler = switch.connect("notify::active", toggled)
+        sub = ("Also backs up saved passwords, Health and Wi\u2011Fi data. Turning it on asks for a password; "
+               "without it encrypted backups cannot be restored or browsed." if known
+               else "Connect a device to change this.")
+        return self._row(title, sub, switch)
+
     def _switch(self, title: str, sub: str | None, attr: str) -> Gtk.Widget:
         switch = Gtk.Switch(active=getattr(self._settings, attr))
         switch.update_property([Gtk.AccessibleProperty.LABEL], [title])
@@ -146,9 +177,9 @@ class SettingsWindow(Dialog):
         self._settings.save()
         self._window.on_setting_changed(attr)
 
-    def _pick_folder(self, *_):
-        dialog = Gtk.FileDialog(title="Choose backup folder", modal=True)
-        dialog.set_initial_folder(Gio.File.new_for_path(self._settings.backup_dir))
+    def _pick_folder(self, attr: str, title: str, shown: Gtk.Label):
+        dialog = Gtk.FileDialog(title=title, modal=True)
+        dialog.set_initial_folder(Gio.File.new_for_path(getattr(self._settings, attr)))
 
         def chosen(source, result):
             try:
@@ -156,8 +187,8 @@ class SettingsWindow(Dialog):
             except Exception:
                 return
             if folder and folder.get_path():
-                self._folder_label.set_label(folder.get_path())
-                self._set("backup_dir", folder.get_path())
+                shown.set_label(folder.get_path())
+                self._set(attr, folder.get_path())
 
         dialog.select_folder(self, None, chosen)
 

@@ -36,7 +36,14 @@ class Sidebar(Gtk.Box):
         self.add_css_class("sidebar")
         self.set_size_request(270, -1)
         self._size_of = size_of
-        self.append(label("DEVICES", "section-title"))
+        heading = hbox(8)
+        title = label("DEVICES", "section-title")
+        title.set_hexpand(True)
+        title.set_valign(Gtk.Align.CENTER)
+        heading.append(title)
+        self._action = hbox(0)
+        heading.append(self._action)
+        self.append(heading)
         scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self._list = vbox(14)
         scroller.set_child(self._list)
@@ -46,6 +53,10 @@ class Sidebar(Gtk.Box):
         self._path = label("", "path", wrap=True)
         self._location.append(self._path)
         self.append(self._location)
+
+    def set_action(self, widget: Gtk.Widget):
+        """The button beside the DEVICES heading."""
+        self._action.append(widget)
 
     def set_location(self, path: str):
         home = str(Path.home())

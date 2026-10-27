@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 OUTPUT = Path(sys.argv[1] if len(sys.argv) > 1 else "docs/media/ibr-demo.gif").resolve()
@@ -20,7 +21,7 @@ from ibr.app import Application  # noqa: E402
 from ibr.core.settings import Settings  # noqa: E402
 
 FRAMES = Path(tempfile.mkdtemp(prefix="ibr-gif-"))
-SIZE = (1160, 720)
+SIZE = (1240, 760)
 
 
 def grab(window: Gtk.Window) -> Image.Image:
@@ -55,6 +56,7 @@ def main():
     settings.theme = "dark"
     settings.save()
     demo.seed_backups(Path(settings.backup_dir))
+    demo.seed_firmware(settings)
     demo.install_simulation()
     monitor = demo.DemoMonitor()
     app = Application(monitor)
@@ -102,15 +104,47 @@ def main():
 
     def firmware(win):
         from ibr.core.firmware import FirmwareTarget
-        from ibr.ui.firmware_dialog import FirmwareDialog
         FirmwareDialog(win, FirmwareTarget.from_device(win.current_device_info())).present()
+
+    def start_download(win):
+        shown = [t for t in Gtk.Window.list_toplevels() if isinstance(t, FirmwareDialog) and t.get_visible()]
+        if shown:
+            shown[-1]._download_selected()
+
+    def keep_frame(kind, seconds):
+        def take(win):
+            shown = [t for t in Gtk.Window.list_toplevels() if isinstance(t, kind) and t.get_visible()]
+            if shown:
+                save(composite(grab(win), grab(shown[-1])), seconds)
+        return take
+
+    def settings_window(win):
+        from ibr.ui.settings_window import SettingsWindow
+        dialog = SettingsWindow(win)
+        dialog.present()
+        GLib.timeout_add(300, lambda: dialog.get_child().get_vadjustment().set_value(330) and False)
 
     def browse(win, udid):
         win.close_files()
         win.open_backup(next(e for e in win.backups if e.udid == udid))
 
+    import ibr.ui.firmware_dialog as firmware_dialog
     from ibr.ui.firmware_dialog import FirmwareDialog
     from ibr.ui.preview_dialog import PreviewDialog
+    from ibr.ui.settings_window import SettingsWindow
+
+    def fake_download(url, target, sha256, progress, cancelled):
+        total = 9_100_000_000
+        for step in range(1, 61):
+            if cancelled():
+                return "Cancelled"
+            time.sleep(0.08)
+            progress(step * total // 60, total)
+        with open(target, "wb") as handle:
+            handle.truncate(total)
+        return None
+
+    firmware_dialog.download_ipsw = fake_download
 
     # (action before waiting, wait in ms, capture)
     script = [
@@ -122,12 +156,10 @@ def main():
         (lambda w: None, 2600, window_frame(1.8)),
         (lambda w: (w.open_files(), GLib.timeout_add(300, lambda: w.files_view.open_path("/DCIM/100APPLE")
                                                        and False)), 1600, window_frame(1.8)),
-        (lambda w: w.files_view._set_mode("grid"), 2500, window_frame(2.0)),
         (preview_photo, 1600, dialog_frame(PreviewDialog, 2.0)),
         (open_vlc, 1200, window_frame(1.2)),
         (lambda w: w.files_view.open_path("/Documents/Music"), 5000, window_frame(1.8)),
         (play_song, 6000, dialog_frame(PreviewDialog, 2.4)),
-        (lambda w: w.files_view._set_mode("list"), 300, lambda w: None),
         (lambda w: browse(w, demo.OLD), 1500, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Camera Roll", "Media", "DCIM", "100APPLE")), 900, window_frame(1.8)),
         (lambda w: w.backup_view.open_path(("Apps",)), 900, window_frame(1.6)),
@@ -137,7 +169,11 @@ def main():
          window_frame(1.6)),
         (lambda w: browse(w, demo.PHONE), 900, window_frame(1.8)),
         (lambda w: (w.close_backup(), scene("older-ios")), 1200, window_frame(1.4)),
-        (firmware, 1200, dialog_frame(FirmwareDialog, 2.2)),
+        (firmware, 7000, keep_frame(FirmwareDialog, 2.2)),
+        (start_download, 2500, keep_frame(FirmwareDialog, 1.2)),
+        (lambda w: None, 2500, dialog_frame(FirmwareDialog, 1.6)),
+        (lambda w: (scene("phone"), settings_window(w)), 1500, dialog_frame(SettingsWindow, 2.2)),
+        (lambda w: scene("older-ios"), 1200, lambda w: None),
         (lambda w: scene("recovery"), 1500, window_frame(2.0)),
         (lambda w: scene("phone"), 1500, window_frame(1.2)),
     ]

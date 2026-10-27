@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,6 +7,7 @@ from gi.repository import Gdk, GLib, GObject, Gtk
 
 from ..core.audio_meta import Track
 from ..core.fmt import format_size
+from ..core.preview import codec_hint
 from ..services.media import online_cover, probe
 from ..services.runner import in_thread
 from .widgets import button, hbox, label, vbox
@@ -39,6 +41,7 @@ class AudioPlayer(Gtk.Box):
         self._index = index
         self._stream: Gtk.MediaFile | None = None
         self._turn = 0
+        self.path: Path | None = None
 
         left = vbox(12)
         left.set_size_request(COVER, -1)
@@ -85,6 +88,9 @@ class AudioPlayer(Gtk.Box):
 
         right = vbox(8)
         right.set_hexpand(True)
+        self._problem = label("", "warning-box", wrap=True)
+        self._problem.set_visible(False)
+        right.append(self._problem)
         count = len(songs)
         right.append(label(f"IN THIS FOLDER · {count} TRACK{'S' if count != 1 else ''}", "section-title"))
         self._rows = Gtk.ListBox(css_classes=["playlist"], selection_mode=Gtk.SelectionMode.SINGLE)
@@ -124,6 +130,7 @@ class AudioPlayer(Gtk.Box):
         self._seek.set_value(0)
         self._elapsed.set_label("0:00")
         self._length.set_label("0:00")
+        self._problem.set_visible(False)
         for value in self._facts.values():
             value.set_label("…")
         song.fetch(lambda path: turn == self._turn and self._start(path, turn))
@@ -151,8 +158,9 @@ class AudioPlayer(Gtk.Box):
 
     def _start(self, path: Path | None, turn: int):
         if path is None:
-            self._byline.set_label("This file could not be opened.")
+            self._warn("This file could not be opened.")
             return
+        self.path = path
         self.emit("track-changed", path)
         self._facts["Format"].set_label(path.suffix.lstrip(".").upper() or "Audio")
         self._facts["Size"].set_label(format_size(path.stat().st_size))
@@ -162,8 +170,8 @@ class AudioPlayer(Gtk.Box):
         stream.connect("notify::duration", self._on_time)
         stream.connect("notify::playing", self._on_playing)
         stream.connect("notify::ended", lambda s, _p: s.get_ended() and self.skip(1))
-        stream.connect("notify::error", lambda s, _p: s.get_error() and self._byline.set_label(
-            "This audio format cannot be played here."))
+        stream.connect("notify::error", lambda s, _p: s.get_error() and self._warn(
+            codec_hint(bool(os.environ.get("APPIMAGE")))))
         stream.play()
 
         def describe():
@@ -171,6 +179,10 @@ class AudioPlayer(Gtk.Box):
             return track, cover or online_cover(track)
 
         in_thread(describe, lambda result: turn == self._turn and self._described(*result))
+
+    def _warn(self, text: str):
+        self._problem.set_label(text)
+        self._problem.set_visible(True)
 
     def _described(self, track: Track, cover: bytes | None):
         self._show(track)

@@ -74,7 +74,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app, settings, monitor: DeviceMonitor | None = None):
         super().__init__(application=app, title=APP_NAME)
         self.add_css_class("ibr")
-        self.set_default_size(1120, 720)
+        self.set_default_size(1240, 760)
         self.set_size_request(900, 620)
         self.settings = settings
         self.monitor = monitor or DeviceMonitor()
@@ -103,6 +103,7 @@ class MainWindow(Gtk.ApplicationWindow):
         body.set_vexpand(True)
         self.sidebar = Sidebar(self.size_of)
         self.sidebar.set_location(self.settings.backup_dir)
+        self.sidebar.set_action(self._scan)
         self.sidebar.connect("device-selected", self._on_device_selected)
         self.sidebar.connect("backup-activated", self._on_backup_activated)
         self._side = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, hhomogeneous=False)
@@ -128,7 +129,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.device_view.connect("restore", lambda *_: self.open_restore())
         self.device_view.connect("manage", lambda *_: BackupsWindow(self, self.current).present())
         self.device_view.connect("cancel", lambda *_: self._cancel_backup())
-        self.device_view.connect("encrypt-toggled", self._on_encrypt_toggled)
         self.device_view.connect("files", lambda *_: self.open_files())
         self.device_view.connect("software", lambda *_: self.open_software())
         self.recovery_view = RecoveryView()
@@ -187,17 +187,26 @@ class MainWindow(Gtk.ApplicationWindow):
         header.set_title_widget(Gtk.Box())
         header.set_decoration_layout(_without_icon(Gtk.Settings.get_default().props.gtk_decoration_layout))
 
-        about = button("", "help-about-symbolic", tooltip="About iBR")
-        about.connect("clicked", lambda *_: AboutWindow(self).present())
-        settings = button("", "emblem-system-symbolic", tooltip="Settings")
-        settings.connect("clicked", lambda *_: self.open_settings())
-        self._scan = button("Scan for Devices", "view-refresh-symbolic", "primary")
+        items = vbox(2, "app-menu")
+        menu = Gtk.Popover(child=items)
+        for text, icon, action in (("Settings", "emblem-system-symbolic", self.open_settings),
+                                   ("About iBR", "help-about-symbolic", lambda: AboutWindow(self).present())):
+            item = button(text, icon, "flat", "menu-item")
+            item.get_child().set_halign(Gtk.Align.START)
+            item.connect("clicked", lambda _b, run=action: (menu.popdown(), run()))
+            items.append(item)
+        menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", popover=menu, tooltip_text="Menu")
+        menu_button.add_css_class("main-menu")
+        menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Menu"])
+        self._scan = button("Scan", "view-refresh-symbolic", "primary", "compact",
+                            tooltip="Look for connected iPhones and iPads")
         self._scan.connect("clicked", lambda *_: self.monitor.scan(refresh=True))
-        self._update = button("Update", "software-update-available-symbolic", "update")
+        self._update = button("Update Available", "software-update-available-symbolic", "update")
         self._update.set_visible(False)
+        self._update.set_valign(Gtk.Align.CENTER)
         self._update.connect("clicked", lambda *_: self._install_update())
-        for widget in (about, settings, self._scan, self._update):
-            header.pack_end(widget)
+        menu_button.set_margin_end(12)
+        header.pack_end(menu_button)
         self.set_titlebar(header)
 
     def _build_footer(self) -> Gtk.Widget:
@@ -231,9 +240,17 @@ class MainWindow(Gtk.ApplicationWindow):
         tips.append(self._usb_rule_box)
         popover = Gtk.Popover(child=tips)
         popover.set_size_request(320, -1)
-        help_button = Gtk.MenuButton(label="Troubleshoot", popover=popover, valign=Gtk.Align.CENTER)
+        help_button = Gtk.MenuButton(popover=popover, valign=Gtk.Align.CENTER, always_show_arrow=True)
         help_button.add_css_class("link")
-        footer.set_end_widget(help_button)
+        content = hbox(6)
+        content.append(Gtk.Image(gicon=Gio.ThemedIcon.new_from_names(
+            ["applications-engineering-symbolic", "preferences-system-symbolic", "help-about-symbolic"])))
+        content.append(label("Troubleshoot"))
+        help_button.set_child(content)
+        end = hbox(10)
+        end.append(self._update)
+        end.append(help_button)
+        footer.set_end_widget(end)
         return footer
 
     def current_device(self) -> Device | None:
@@ -327,7 +344,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.refresh_ui()
 
     def _on_scanning(self, monitor, scanning: bool):
-        set_button_text(self._scan, "Scanning…" if scanning else "Scan for Devices")
+        set_button_text(self._scan, "Scanning…" if scanning else "Scan")
         self._scan.set_sensitive(not scanning and not self._op_active)
 
     def _on_device_selected(self, sidebar, udid: str):
@@ -678,7 +695,7 @@ class MainWindow(Gtk.ApplicationWindow):
         def done(error):
             if error:
                 self._update.set_sensitive(True)
-                set_button_text(self._update, "Update")
+                set_button_text(self._update, "Update Available")
                 alert(self, "Update failed", f"iBR could not update to {info.version}: {error}", kind="warning")
                 return
             updater.relaunch_after_exit()
@@ -790,9 +807,13 @@ class MainWindow(Gtk.ApplicationWindow):
         operation.connect("done", done)
         operation.start()
 
-    def _on_encrypt_toggled(self, view, enable: bool):
+    def set_encryption(self, enable: bool, done):
+        """Turns backup encryption on or off for the connected device after asking for the password.
+        done(enabled) reports the state afterwards, unchanged when cancelled or refused."""
         info = self.current_device_info()
+        view = self.device_view
         if not info:
+            done(not enable)
             return
         if enable:
             mode, title = "new", "Turn on encryption"
@@ -804,7 +825,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         def answered(result):
             if result is None:
-                view.set_encrypt(not enable)
+                done(not enable)
                 return
             password = result.get("new") or result.get("current")
             argv, env = encryption_cmd(info.udid, enable, password)
@@ -815,10 +836,10 @@ class MainWindow(Gtk.ApplicationWindow):
                     keyring.store(info.udid, info.name, password)
                 if success and not enable:
                     keyring.clear(info.udid)
+                done(enable if success else not enable)
                 if success:
                     view.show_banner("success", f"Encryption is now {'on' if enable else 'off'} for {info.name}.")
                 else:
-                    view.set_encrypt(not enable)
                     view.show_banner("error", f"Could not change encryption: {message}")
 
             self._run_simple("encryption", argv, env, finished)

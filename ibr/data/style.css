@@ -66,16 +66,16 @@ window.ibr {
 window.ibr headerbar {
   background: var(--titlebar);
   color: var(--fg);
-  min-height: 40px;
-  padding: 0 8px;
+  min-height: 32px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--line);
   box-shadow: none;
 }
 
 window.ibr headerbar windowcontrols button {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 2px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 1px;
   margin: 0 2px;
   border-radius: 999px;
   background: transparent;
@@ -87,8 +87,8 @@ window.ibr headerbar windowcontrols button:hover {
 
 .app-title { font-weight: 700; font-size: 14px; }
 .app-subtitle { font-size: 12px; color: var(--muted); }
-window.ibr headerbar button { min-height: 30px; margin-top: 4px; margin-bottom: 4px; }
-window.ibr headerbar button.icon { min-width: 30px; }
+window.ibr headerbar button { min-height: 24px; margin-top: 3px; margin-bottom: 3px; }
+window.ibr headerbar button.icon { min-width: 26px; }
 
 window.ibr button {
   background: var(--card);
@@ -456,17 +456,18 @@ window.ibr flowbox > flowboxchild { padding: 0; background: transparent; }
 
 window.ibr button.danger-solid { background: var(--red); color: #ffffff; }
 window.ibr button.danger-solid:hover { background: #ff6b6b; }
+window.ibr button.danger-solid:disabled { background: var(--card); color: var(--disabled); }
 .message-icon-info { color: var(--accent-text); }
 .message-icon-warning { color: #ffab40; }
 .message-icon-danger { color: var(--red); }
-window.ibr headerbar togglebutton, window.ibr headerbar button.toggle { min-height: 30px; min-width: 30px; margin: 4px 0 4px 6px; border-radius: 8px; border: none; background: transparent; color: var(--fg2); box-shadow: none; }
+window.ibr headerbar togglebutton, window.ibr headerbar button.toggle { min-height: 24px; min-width: 26px; margin: 3px 0 3px 6px; border-radius: 8px; border: none; background: transparent; color: var(--fg2); box-shadow: none; }
 window.ibr headerbar button.toggle:checked { background: var(--card); }
 .files-locations { padding: 14px 10px; }
 .preview-stage { background: #000000; }
 .preview-bar { padding: 10px 16px; background: var(--titlebar); border-top: 1px solid var(--line); }
 window.ibr label > selection, window.ibr text > selection { background-color: rgba(86, 87, 245, 0.35); color: inherit; }
-window.ibr headerbar button.update { background: var(--success-bg); color: var(--success-fg); }
-window.ibr headerbar button.update:hover { background: #24503a; }
+window.ibr button.update { min-height: 34px; padding: 0 16px; font-size: 14px; font-weight: 700; background: var(--success); color: var(--bg); }
+window.ibr button.update:hover { box-shadow: 0 0 0 3px var(--success-bg); }
 window.ibr headerbar windowcontrols button,
 window.ibr headerbar windowcontrols button:backdrop { color: var(--fg2); opacity: 1; }
 window.ibr headerbar windowcontrols button image,
@@ -481,7 +482,7 @@ window.ibr button.tree-back { padding: 6px 8px; }
 window.ibr checkbutton.choice-card { background: var(--card); border-radius: 10px; padding: 12px 14px; }
 window.ibr checkbutton.choice-card:checked { box-shadow: inset 0 0 0 1px var(--primary); }
 window.ibr gridview.tiles { background: transparent; padding: 10px; }
-window.ibr gridview.tiles > child { padding: 6px; border-radius: 10px; }
+window.ibr gridview.tiles > child { padding: 6px; margin: 6px; border-radius: 10px; }
 window.ibr gridview.tiles > child:hover { background: var(--card-hover); }
 window.ibr gridview.tiles > child:selected { background: var(--info-bg); box-shadow: inset 0 0 0 1px var(--primary); }
 window.ibr .tile-frame { border-radius: 8px; background: var(--bg); }
@@ -502,3 +503,24 @@ window.ibr list.playlist { background: transparent; }
 window.ibr list.playlist > row { padding: 9px 10px; border-radius: 8px; }
 window.ibr list.playlist > row:hover { background: var(--card-hover); }
 window.ibr list.playlist > row:selected { background: var(--card); box-shadow: inset 2px 0 0 var(--primary); color: var(--fg); }
+window.ibr headerbar menubutton.main-menu > button { min-width: 28px; min-height: 24px; padding: 0; margin: 3px 0; border-radius: 7px; background: var(--card); color: var(--fg2); }
+window.ibr headerbar menubutton.main-menu > button:hover { background: var(--card-hover); }
+window.ibr box.app-menu { padding: 4px; min-width: 170px; }
+window.ibr button.menu-item { min-height: 34px; padding: 0 10px; border-radius: 6px; background: transparent; }
+window.ibr button.menu-item:hover { background: var(--card-hover); }
+window.ibr button.compact { min-height: 26px; padding: 0 10px; font-size: 12px; border-radius: 7px; }
+window.ibr headerbar menubutton { margin: 0; padding: 0; min-height: 0; }
+window.ibr headerbar windowcontrols button image { -gtk-icon-size: 14px; min-width: 14px; min-height: 14px; }
+window.ibr box.download-progress { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+window.ibr label.fetch-percent { font-size: 20px; font-weight: 800; color: var(--accent-text); }
+window.ibr box.drop-zone { border: 2px dashed var(--line-strong); background: transparent; }
+window.ibr box.drop-zone image { color: var(--muted); }
+window.ibr list.library-list { background: transparent; }
+window.ibr list.library-list > row { padding: 7px 8px; border-radius: 8px; }
+window.ibr list.library-list > row:hover { background: var(--card-hover); }
+window.ibr list.library-list > row:selected { background: var(--info-bg); color: var(--fg); box-shadow: inset 2px 0 0 var(--primary); }
+window.ibr label.badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+window.ibr label.badge.ok { background: var(--success-bg); color: var(--success-fg); }
+window.ibr label.badge.warn { background: var(--warn-bg); color: var(--warn-fg); }
+window.ibr label.badge.muted { background: var(--card-hover); color: var(--muted); }
+window.ibr label.warning-text { font-size: 14px; font-weight: 600; }

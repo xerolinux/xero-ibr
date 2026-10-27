@@ -55,3 +55,23 @@ def test_keep_history_default_and_bounds(tmp_path):
     assert Settings.load(path).keep_history == 3
     path.write_text(json.dumps({"keep_history": 5}))
     assert Settings.load(path).keep_history == 5
+
+
+def test_firmware_folder_follows_the_xdg_download_folder(tmp_path, monkeypatch):
+    from ibr.core.settings import default_firmware_dir
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "user-dirs.dirs").write_text('XDG_DOWNLOAD_DIR="$HOME/Transfers"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert default_firmware_dir() == tmp_path / "Transfers" / "iPSW"
+    (config / "user-dirs.dirs").unlink()
+    assert default_firmware_dir() == tmp_path / "Downloads" / "iPSW"
+    assert Settings.load(tmp_path / "s.json").firmware_dir == str(tmp_path / "Downloads" / "iPSW")
+
+
+def test_grid_view_is_the_default_even_for_old_settings(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"files_view_mode": "list", "backup_view_mode": "list"}))
+    settings = Settings.load(path)
+    assert (settings.files_layout, settings.backup_layout) == ("grid", "grid")
