@@ -75,3 +75,17 @@ def test_grid_view_is_the_default_even_for_old_settings(tmp_path):
     path.write_text(json.dumps({"files_view_mode": "list", "backup_view_mode": "list"}))
     settings = Settings.load(path)
     assert (settings.files_layout, settings.backup_layout) == ("grid", "grid")
+
+
+def test_notice_not_accepted_and_sounds_on_by_default(tmp_path):
+    settings = Settings.load(tmp_path / "settings.json")
+    assert settings.notice_accepted is False
+    assert settings.ui_sounds is True
+
+
+def test_notice_acceptance_persists(tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings.load(path)
+    settings.notice_accepted = True
+    settings.save()
+    assert Settings.load(path).notice_accepted is True

@@ -1,5 +1,6 @@
 from gi.repository import Gdk, Gtk
 
+from . import sounds
 from .widgets import button, hbox, label, vbox
 
 # One size for every multi-step dialog so the window never jumps between steps or between dialogs;
@@ -11,6 +12,7 @@ class Dialog(Gtk.Window):
     def __init__(self, parent: Gtk.Window, title: str, width: int, height: int = -1):
         super().__init__(transient_for=parent, modal=True, title=title, resizable=False)
         self.add_css_class("ibr")
+        sounds.attach(self)
         self.set_default_size(width, height)
         header = Gtk.HeaderBar()
         header.set_title_widget(label(title, "h3"))

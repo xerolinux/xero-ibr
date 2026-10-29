@@ -39,6 +39,7 @@ from .restore_dialog import RestoreDialog
 from .scanning_view import ScanningView
 from .settings_window import SettingsWindow
 from .sidebar import Sidebar, SidebarDevice
+from . import sounds
 from .widgets import button, hbox, label, set_button_text, vbox
 
 TIPS = (
@@ -75,6 +76,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app, settings, monitor: DeviceMonitor | None = None):
         super().__init__(application=app, title=APP_NAME)
         self.add_css_class("ibr")
+        sounds.attach(self)
         self.set_default_size(1240, 760)
         self.set_size_request(900, 620)
         self.settings = settings
@@ -182,6 +184,7 @@ class MainWindow(Gtk.ApplicationWindow):
         brand.append(title)
         header.pack_start(brand)
         self._sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic", active=True)
+        sounds.mark(self._sidebar_toggle)
         self._sidebar_toggle.add_css_class("icon")
         self._sidebar_toggle.set_tooltip_text("Show or hide the device list")
         self._sidebar_toggle.update_property([Gtk.AccessibleProperty.LABEL], ["Show or hide the device list"])
@@ -200,6 +203,7 @@ class MainWindow(Gtk.ApplicationWindow):
             item.connect("clicked", lambda _b, run=action: (menu.popdown(), run()))
             items.append(item)
         menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", popover=menu, tooltip_text="Menu")
+        sounds.mark(menu_button)
         menu_button.add_css_class("main-menu")
         menu_button.update_property([Gtk.AccessibleProperty.LABEL], ["Menu"])
         self._scan = button("Scan", "view-refresh-symbolic", "primary", "compact",
@@ -246,6 +250,7 @@ class MainWindow(Gtk.ApplicationWindow):
         popover.set_size_request(320, -1)
         help_button = Gtk.MenuButton(popover=popover, valign=Gtk.Align.CENTER, always_show_arrow=True)
         help_button.add_css_class("link")
+        sounds.mark(help_button)
         content = hbox(6)
         content.append(Gtk.Image(gicon=Gio.ThemedIcon.new_from_names(
             ["applications-engineering-symbolic", "preferences-system-symbolic", "help-about-symbolic"])))
@@ -805,6 +810,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self.monitor.set_polling(self.settings.auto_detect)
         elif attr == "theme":
             self.get_application().apply_theme(self.settings.theme)
+        elif attr == "ui_sounds":
+            sounds.gate.enabled = self.settings.ui_sounds
         elif attr == "backup_dir":
             self._sizes.clear()
             self.sidebar.set_location(self.settings.backup_dir)

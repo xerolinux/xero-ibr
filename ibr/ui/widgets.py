@@ -5,6 +5,8 @@ from functools import cache
 import cairo
 from gi.repository import Gdk, GLib, Gtk, Pango
 
+from .sounds import mark
+
 
 def label(text: str = "", *classes: str, xalign: float = 0.0, wrap: bool = False,
           ellipsize: bool = False, selectable: bool = False) -> Gtk.Label:
@@ -22,6 +24,7 @@ def label(text: str = "", *classes: str, xalign: float = 0.0, wrap: bool = False
 
 def button(text: str = "", icon: str | None = None, *classes: str, tooltip: str | None = None) -> Gtk.Button:
     widget = Gtk.Button()
+    mark(widget)
     if icon and text:
         content = Gtk.Box(spacing=8)
         content.append(Gtk.Image.new_from_icon_name(icon))

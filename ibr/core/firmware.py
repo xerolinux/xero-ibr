@@ -19,6 +19,23 @@ class OverallPercent:
 
 
 @dataclass(frozen=True)
+class StepPercent:
+    value: float
+
+
+@dataclass(frozen=True)
+class LogLine:
+    text: str
+
+
+def remaining_seconds(elapsed: float, percent: float) -> float | None:
+    """Straight-line estimate; the first few percent are tool start-up and say nothing about speed."""
+    if percent < 3:
+        return None
+    return elapsed * (100 - percent) / percent
+
+
+@dataclass(frozen=True)
 class FirmwareTarget:
     name: str
     product_type: str | None
@@ -163,7 +180,6 @@ _STEPS = (
     ("Finishing up", 2),
     ("Sending boot images", 3),
 )
-STEP_NAMES = tuple(name for name, _ in _STEPS)
 _PROGRESS = re.compile(r"^progress: (\d+) ([\d.]+)$")
 _FAILED_STATUS = re.compile(r"^Status: (?!Restore Finished)(.+?)\.?$")
 
@@ -173,6 +189,7 @@ class FirmwareParser:
         self._buffer = ""
         self._step = None
         self._overall = 0.0
+        self._step_percent = None
         self.last_line = ""
 
     def feed(self, chunk: str) -> list:
@@ -196,19 +213,24 @@ class FirmwareParser:
                 if index != self._step:
                     self._step = index
                     events.append(StepChanged(index, _STEPS[index][0]))
+                step_percent = round(min(fraction, 1.0) * 100, 1)
+                if step_percent != self._step_percent:
+                    self._step_percent = step_percent
+                    events.append(StepPercent(step_percent))
                 overall = sum(weight for _, weight in _STEPS[:index]) + _STEPS[index][1] * min(fraction, 1.0)
                 if overall > self._overall:
                     self._overall = overall
                     events.append(OverallPercent(overall))
             return events
+        events = [LogLine(line)]
         if line == "DONE" or line == "Status: Restore Finished":
-            return [Finished(True, "Restore Finished" if line.startswith("Status") else "DONE")]
+            return events + [Finished(True, "Restore Finished" if line.startswith("Status") else "DONE")]
         failed = _FAILED_STATUS.match(line)
         if failed:
-            return [Finished(False, failed.group(1))]
+            return events + [Finished(False, failed.group(1))]
         if line.startswith("ERROR: "):
-            return [Error(line[len("ERROR: "):])]
-        return []
+            return events + [Error(line[len("ERROR: "):])]
+        return events
 
 
 _SUPPORTED_FROM = {"iPhone": 8, "iPad": 5}

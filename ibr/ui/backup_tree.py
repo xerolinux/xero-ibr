@@ -1,7 +1,8 @@
 from gi.repository import Gio, GObject, Gtk
 
 from ..core.backup_browse import BackupReader, Node, tree_sections
-from .widgets import hbox, label, vbox
+from .sounds import mark
+from .widgets import hbox, label
 
 ICON = 18
 PLACES = {
@@ -57,6 +58,7 @@ class BackupTree(Gtk.Box):
         back = Gtk.Button(tooltip_text="Back to devices")
         back.add_css_class("flat")
         back.add_css_class("tree-back")
+        mark(back)
         back.update_property([Gtk.AccessibleProperty.LABEL], ["Back to devices"])
         content = hbox(8)
         content.append(Gtk.Image.new_from_icon_name("go-previous-symbolic"))

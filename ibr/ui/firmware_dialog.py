@@ -4,11 +4,10 @@ from pathlib import Path
 from gi.repository import Gio, GLib, Gtk
 
 from ..core.commands import firmware_cmd
-from ..core.firmware import (STEP_NAMES, FirmwareParser, FirmwareTarget, OverallPercent, SignedIpsw, StepChanged,
-                             ipsw_matches)
-from ..core.fmt import format_size
-from ..core.ipsw_library import best_for
-from ..core.progress import Error
+from ..core.firmware import (FirmwareParser, FirmwareTarget, LogLine, OverallPercent, SignedIpsw, StepChanged,
+                             StepPercent, ipsw_matches, remaining_seconds)
+from ..core.fmt import format_eta, format_size
+from ..core.ipsw_library import best_for, read_ipsw
 from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
 from ..services.firmware import check_tool
@@ -16,10 +15,12 @@ from ..services.operation import Operation
 from .device_art import DeviceArt
 from .dialog import Dialog, confirm
 from .ipsw_panels import IpswDownloader, IpswLibrary
+from . import sounds
 from .widgets import button, clear, hbox, label, set_classes, vbox
 
 # Wider and taller than other dialogs: two columns of controls plus the iPSW library. Still inside the main window.
 FIRMWARE_PANEL = (1040, 680)
+_LOG_LINES = 2000
 
 
 TOOL_HELP = {
@@ -40,8 +41,8 @@ class FirmwareDialog(Dialog):
         self._tool = None
         self._operation = None
         self._pulse = 0
-        self._seen: set[int] = set()
         self._started = 0.0
+        self._step_name = ""
         self._erasing = False
         self._own_signed: set[str] | None = None
         self._chosen_by_user = False
@@ -148,52 +149,83 @@ class FirmwareDialog(Dialog):
         return art
 
     def _progress_page(self):
-        page = hbox(40)
-        self._margins(page, 32)
-        page.append(self._art())
-        column = vbox(16)
-        column.set_hexpand(True)
-        column.set_valign(Gtk.Align.CENTER)
-        self._progress_title = label("", "h2")
-        column.append(self._progress_title)
-        card = vbox(12, "progress-card")
-        top = hbox(12)
-        self._step = label("Starting", "h3", ellipsize=True)
-        self._step.set_hexpand(True)
-        top.append(self._step)
-        self._percent = label("", "big-percent")
-        top.append(self._percent)
-        card.append(top)
+        page = hbox(24)
+        self._margins(page, 24)
+        side = vbox(10)
+        side.set_size_request(270, -1)
+        art = DeviceArt(170, 230)
+        art.set_device(self._device.spec, product_type=self._device.product_type)
+        art.set_halign(Gtk.Align.CENTER)
+        art.set_margin_bottom(4)
+        side.append(art)
+        self._progress_title = label("", "h3", xalign=0.5, ellipsize=True)
+        side.append(self._progress_title)
+        self._versions = label("", "caption", xalign=0.5, ellipsize=True)
+        side.append(self._versions)
+        self._percent = label("0%", "big-percent", xalign=0.5)
+        self._percent.set_margin_top(8)
+        side.append(self._percent)
         self._bar = Gtk.ProgressBar()
-        self._bar.add_css_class("thick")
-        card.append(self._bar)
-        self._detail = label("", "caption", ellipsize=True)
-        self._detail.set_visible(False)
-        card.append(self._detail)
-        column.append(card)
-        self._stage_rows = []
-        stages = vbox(8)
-        for name in STEP_NAMES:
-            row = label(name, "step")
-            self._stage_rows.append(row)
-            stages.append(row)
-        column.append(stages)
-        column.append(label("Keep the device plugged in. It restarts several times; do not unplug it until "
-                            "this window says it is finished.", "caption", wrap=True))
-        page.append(column)
+        self._bar.add_css_class("card-bar")
+        self._bar.set_size_request(200, -1)
+        self._bar.set_halign(Gtk.Align.CENTER)
+        side.append(self._bar)
+        self._step = label("Starting", "caption", xalign=0.5, ellipsize=True)
+        side.append(self._step)
+        self._eta = label("", "caption", xalign=0.5)
+        side.append(self._eta)
+        note = label("Keep the device plugged in. It restarts several times; do not unplug it until this window "
+                     "says it is finished.", "caption", xalign=0.5, wrap=True)
+        note.set_justify(Gtk.Justification.CENTER)
+        note.set_vexpand(True)
+        note.set_valign(Gtk.Align.END)
+        side.append(note)
+        page.append(side)
+
+        terminal = vbox(0, "term-window")
+        terminal.set_hexpand(True)
+        bar = hbox(8, "term-bar")
+        for _ in range(3):
+            bar.append(vbox(0, "term-dot"))
+        title = label("idevicerestore", "term-title", xalign=0.5)
+        title.set_hexpand(True)
+        title.set_margin_end(52)
+        bar.append(title)
+        terminal.append(bar)
+        self._log = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
+                                 wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self._log.add_css_class("term-text")
+        for side, value in (("left", 16), ("right", 16), ("top", 14), ("bottom", 6)):
+            getattr(self._log, f"set_{side}_margin")(value)
+        self._log.update_property([Gtk.AccessibleProperty.LABEL], ["idevicerestore output"])
+        buffer = self._log.get_buffer()
+        # The terminal is dark in both themes, so its colours are fixed rather than theme tokens.
+        buffer.create_tag("prompt", foreground="#9a9bff")
+        buffer.create_tag("error", foreground="#ff8a80")
+        self._log_end = buffer.create_mark("end", buffer.get_end_iter(), False)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        scroller.set_child(self._log)
+        terminal.append(scroller)
+        status = hbox(0, "term-status")
+        self._live = label("", "term-live", ellipsize=True)
+        status.append(self._live)
+        status.append(label("█", "term-cursor"))
+        terminal.append(status)
+        page.append(terminal)
         return page
 
-    def _show_stage(self, current: int):
-        """idevicerestore skips and reorders steps by device, so a step is done once a later one has started."""
-        if current < 0:
-            self._seen = set()
+    def _log_line(self, text: str, tag: str | None = None):
+        buffer = self._log.get_buffer()
+        if buffer.get_line_count() > _LOG_LINES:
+            buffer.delete(buffer.get_start_iter(), buffer.get_iter_at_line(buffer.get_line_count() - _LOG_LINES)[1])
+        end = buffer.get_end_iter()
+        if buffer.get_char_count():
+            buffer.insert(end, "\n")
+        if tag:
+            buffer.insert_with_tags_by_name(buffer.get_end_iter(), text, tag)
         else:
-            self._seen.add(current)
-        for index, row in enumerate(self._stage_rows):
-            done, now = index in self._seen and index != current, index == current
-            name = STEP_NAMES[index]
-            row.set_label(f"✓ {name}" if done else f"● {name}" if now else name)
-            set_classes(row, *(["done"] if done else ["current"] if now else []), keep=("step",))
+            buffer.insert(buffer.get_end_iter(), text)
+        self._log.scroll_mark_onscreen(self._log_end)
 
     def _result_page(self):
         page = hbox(40)
@@ -325,9 +357,17 @@ class FirmwareDialog(Dialog):
         self._operation.connect("event", self._on_event)
         self._operation.connect("done", self._on_done)
         self._progress_title.set_label(("Restoring " if erase else "Updating ") + self._device.name)
+        target = read_ipsw(Path(self._ipsw))
+        self._versions.set_label(f"{self._device.installed} → {self._os} {target.version} ({target.build})"
+                                 if target.version else Path(self._ipsw).name)
         self._erasing = erase
         self._started = time.monotonic()
-        self._show_stage(-1)
+        self._step_name = "Starting"
+        self._step.set_label(self._step_name)
+        self._eta.set_label("Estimating time left…")
+        self._live.set_label("Starting…")
+        self._log.get_buffer().set_text("")
+        self._log_line(f"% idevicerestore {'-e ' if erase else ''}{Path(self._ipsw).name}", "prompt")
         self._bar.set_fraction(0)
         self._pulse = GLib.timeout_add(120, lambda: self._bar.pulse() or True)
         self._stack.set_visible_child_name("progress")
@@ -341,16 +381,23 @@ class FirmwareDialog(Dialog):
             self._pulse = 0
 
     def _on_event(self, operation, event):
-        if isinstance(event, StepChanged):
+        if isinstance(event, LogLine):
+            self._log_line(event.text, "error" if event.text.startswith("ERROR") else None)
+        elif isinstance(event, StepChanged):
+            self._step_name = event.name
             self._step.set_label(event.name)
-            self._show_stage(event.index)
+            self._live.set_label(f"{event.name}…")
+        elif isinstance(event, StepPercent):
+            self._live.set_label(f"{self._step_name}… {event.value:.0f}%")
         elif isinstance(event, OverallPercent):
+            if self._pulse:
+                # The bar pulses until idevicerestore reports its first percent: the update has really begun.
+                sounds.gate.cue("matrix")
             self._stop_pulse()
             self._bar.set_fraction(event.value / 100)
             self._percent.set_label(f"{event.value:.0f}%")
-        elif isinstance(event, Error):
-            self._detail.set_label(event.message)
-            self._detail.set_visible(True)
+            left = remaining_seconds(time.monotonic() - self._started, event.value)
+            self._eta.set_label("Estimating time left…" if left is None else f"{format_eta(left)} left")
 
     def _on_done(self, operation, success: bool, message: str):
         self._stop_pulse()

@@ -254,6 +254,15 @@ window.ibr progressbar.card-bar > trough { background: var(--line-strong); }
   border-radius: 14px;
   padding: 22px;
 }
+.term-window { background: #1a1a1f; border: 1px solid var(--card); border-radius: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); }
+.term-bar { background: #2b2b33; border-bottom: 1px solid #1a1a1f; border-radius: 10px 10px 0 0; min-height: 30px; padding: 0 12px; }
+.term-dot { background: #55565d; border-radius: 6px; min-width: 11px; min-height: 11px; margin: 9px 0; }
+.term-title { font-family: "JetBrains Mono", monospace; font-size: 12px; color: #8b8b95; }
+window.ibr textview.term-text, window.ibr textview.term-text > text { background: #1a1a1f; color: #d4d4dc; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.term-status { padding: 4px 16px 12px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: #ffffff; }
+@keyframes term-blink { 0% { opacity: 1; } 50% { opacity: 1; } 51% { opacity: 0; } 100% { opacity: 0; } }
+.term-cursor { margin-left: 6px; animation: term-blink 1.1s infinite; }
+
 .big-percent {
   font-size: 44px;
   font-weight: 700;
@@ -460,6 +469,14 @@ window.ibr button.danger-solid:disabled { background: var(--card); color: var(--
 .message-icon-info { color: var(--accent-text); }
 .message-icon-warning { color: #ffab40; }
 .message-icon-danger { color: var(--red); }
+.notice-icon { background: var(--info-bg); color: var(--info-fg); border-radius: 12px; min-width: 44px; min-height: 44px; }
+.terms-scroller { background: var(--frame); border: 1px solid var(--card); border-radius: 10px; }
+.terms-box { padding: 18px 20px; }
+.terms-heading { font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--accent-text); }
+.terms-heading.warn { color: var(--warn-fg); }
+.terms-text { font-size: 13px; color: var(--fg3); }
+.terms-legal { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--warn-fg); }
+label.caption.ok { color: var(--success); }
 window.ibr headerbar togglebutton, window.ibr headerbar button.toggle { min-height: 24px; min-width: 26px; margin: 3px 0 3px 6px; border-radius: 8px; border: none; background: transparent; color: var(--fg2); box-shadow: none; }
 window.ibr headerbar button.toggle:checked { background: var(--card); }
 .files-locations { padding: 14px 10px; }

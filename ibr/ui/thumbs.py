@@ -8,6 +8,7 @@ from gi.repository import Gdk, GLib, GObject, Gtk
 
 from ..core.settings import xdg_dir
 from ..core.thumbs import THUMB_SIZE, cache_name
+from .sounds import mark
 from .widgets import hbox, label, vbox
 
 TILE = 132
@@ -96,6 +97,7 @@ class ViewSwitch(Gtk.Box):
                                     ("list", "view-list-symbolic", "List view")):
             toggle = Gtk.ToggleButton(icon_name=icon, tooltip_text=tooltip, group=group, active=name == mode)
             toggle.update_property([Gtk.AccessibleProperty.LABEL], [tooltip])
+            mark(toggle)
             toggle.connect("toggled", lambda b, n=name: b.get_active() and self.emit("changed", n))
             group = group or toggle
             self._buttons[name] = toggle

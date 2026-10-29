@@ -9,6 +9,8 @@ from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .constants import APP_ID, APP_NAME  # noqa: E402
 from .core.settings import Settings  # noqa: E402
+from .ui import sounds  # noqa: E402
+from .ui.notice_dialog import NoticeDialog  # noqa: E402
 from .ui.window import MainWindow  # noqa: E402
 
 _SCHEMES = {
@@ -29,6 +31,7 @@ class Application(Gtk.Application):
         Gtk.Application.do_startup(self)
         Gtk.Window.set_default_icon_name(APP_ID)
         self.settings = Settings.load()
+        sounds.gate.enabled = self.settings.ui_sounds
         self._css = Gtk.CssProvider()
         self._css.load_from_path(str(files("ibr") / "data" / "style.css"))
         Gtk.StyleContext.add_provider_for_display(
@@ -49,9 +52,12 @@ class Application(Gtk.Application):
             self.set_accels_for_action(f"app.{name}", accels)
 
     def do_activate(self):
-        if not self.window:
+        first = not self.window
+        if first:
             self.window = MainWindow(self, self.settings, self._monitor)
         self.window.present()
+        if first and not self.settings.notice_accepted:
+            NoticeDialog(self.window).present()
 
     def apply_theme(self, theme: str):
         settings = Gtk.Settings.get_default()

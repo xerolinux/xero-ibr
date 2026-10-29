@@ -434,8 +434,20 @@ def fake_changepw_cmd(udid, old, new):
 
 
 def fake_firmware_cmd(udid, erase, ipsw, cache, ecid=None):
+    output = {
+        0: ["Found device in Normal mode", "Identified device as iPhone17,1",
+            "Product version: 26.1", "Product build: 23B85 Major: 23",
+            "Variant: Customer Upgrade Install (IPSW)", "All required components found in IPSW"],
+        1: ["Getting ApNonce in normal mode... 32 bytes", "Sending TSS request to gs.apple.com... OK",
+            "Received SHSH blobs", "Entering recovery mode...", "Sending iBEC (1192 bytes)... DONE",
+            "Waiting for device to reconnect in Restore mode... OK", "Sending RestoreRamDisk... DONE"],
+        2: ["About to send RootFS...", "Sending RootFS (5.82 GB)..."],
+        3: ["Verifying restore...", "Checking filesystems (15)..."],
+        4: ["Updating SE Firmware", "Updating Baseband", "Flashing firmware components..."],
+    }
     lines = []
     for step, pause in ((0, 0.15), (1, 0.15), (2, 0.08), (3, 0.08), (4, 0.08)):
+        lines += [(f"{text}\n", 0.12) for text in output[step]]
         lines += [(f"progress: {step} {n / 20:.6f}\n", pause) for n in range(1, 21)]
     lines.append(("Status: Restore Finished\nDONE\n", 0))
     return _script(lines)

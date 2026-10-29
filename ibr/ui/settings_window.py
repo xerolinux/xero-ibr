@@ -97,6 +97,7 @@ class SettingsWindow(Dialog):
         body.append(self._section("Behaviour", [
             self._switch("Notify when finished", None, "notify"),
             self._switch("Keep the computer awake during backups", None, "keep_awake"),
+            self._switch("Interface sounds", "Quiet hover and click sounds.", "ui_sounds"),
             self._row("Theme", None, theme),
             self._switch("Show serial number and UDID", None, "show_identifiers"),
         ]))

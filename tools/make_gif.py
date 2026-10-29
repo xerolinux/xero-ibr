@@ -54,6 +54,8 @@ def fit(image: Image.Image) -> Image.Image:
 def main():
     settings = Settings.load()
     settings.theme = "dark"
+    settings.notice_accepted = True
+    settings.ui_sounds = False
     settings.save()
     demo.seed_backups(Path(settings.backup_dir))
     demo.seed_firmware(settings)

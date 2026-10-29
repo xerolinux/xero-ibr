@@ -54,6 +54,8 @@ class Settings:
     show_identifiers: bool = False
     files_layout: str = "grid"
     backup_layout: str = "grid"
+    ui_sounds: bool = True
+    notice_accepted: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":

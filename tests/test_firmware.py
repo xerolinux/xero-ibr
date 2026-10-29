@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ibr.core.firmware import (FirmwareParser, OverallPercent, SignedIpsw, StepChanged, appledb_candidates, default_choice,
+from ibr.core.firmware import (FirmwareParser, LogLine, OverallPercent, StepPercent, remaining_seconds, SignedIpsw, StepChanged, appledb_candidates, default_choice,
                                 ipsw_choices,
                                 appledb_signed_ipsw, ipsw_matches, merge_signed, signed_ipsws,
                                 tool_is_modern)
@@ -44,6 +44,26 @@ def test_step_progress_becomes_monotonic_overall_percent():
 
 def test_step_names():
     assert StepChanged(2, "Sending iOS to the device") in feed("progress: 2 0.100000\n")
+
+
+def test_output_lines_become_log_lines():
+    events = feed("Found device in Normal mode\r\n", "Sending iBEC (1192 bytes)...\n")
+    assert [e.text for e in events if isinstance(e, LogLine)] == ["Found device in Normal mode",
+                                                                   "Sending iBEC (1192 bytes)..."]
+
+
+def test_progress_lines_are_not_logged():
+    assert not [e for e in feed("progress: 2 0.500000\n") if isinstance(e, LogLine)]
+
+
+def test_step_percent_follows_the_current_step():
+    events = feed("progress: 2 0.680000\n")
+    assert StepPercent(68.0) in events
+
+
+def test_remaining_seconds_waits_for_enough_progress():
+    assert remaining_seconds(30, 1.0) is None
+    assert remaining_seconds(240, 40.0) == pytest.approx(360)
 
 
 def test_finished_and_errors():
