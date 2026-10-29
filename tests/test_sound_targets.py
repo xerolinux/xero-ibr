@@ -2,9 +2,11 @@ import gi
 import pytest
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk  # noqa: E402
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gtk  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not Gtk.init_check(), reason="needs a display")
+# GTK 4.24's init_check() says True even with no display, and creating a widget then segfaults (headless CI).
+pytestmark = pytest.mark.skipif(not Gtk.init_check() or Gdk.Display.get_default() is None, reason="needs a display")
 
 from ibr.ui.sounds import mark, sound_target  # noqa: E402
 from ibr.ui.widgets import button  # noqa: E402
