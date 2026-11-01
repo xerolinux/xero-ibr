@@ -170,18 +170,21 @@ def tool_is_modern(help_text: str) -> bool:
     return "--plain-progress" in help_text and "--variant" in help_text
 
 
-# idevicerestore's RESTORE_STEP_* order; weights reflect how long each step usually takes.
+# idevicerestore's RESTORE_STEP_* order; weights reflect how long each step usually takes. Steps do not run in
+# this order: modern updates send the system images (7) straight after preparing.
 _STEPS = (
     ("Checking the device", 5),
     ("Preparing the firmware", 10),
-    ("Sending iOS to the device", 45),
+    ("Sending iOS to the device", 25),
     ("Verifying iOS", 15),
     ("Updating firmware", 15),
     ("Updating the modem", 5),
-    ("Finishing up", 2),
-    ("Sending boot images", 3),
+    ("Finishing up", 5),
+    ("Sending system images", 20),
 )
 _PROGRESS = re.compile(r"^progress: (\d+) ([\d.]+)$")
+# --plain-progress also prints "<image>:   0.4" (printf "%5.1f") on every percent: noise next to "progress:".
+_IMAGE_PROGRESS = re.compile(r"^\S+: {3}[01]\.\d$")
 _FAILED_STATUS = re.compile(r"^Status: (?!Restore Finished)(.+?)\.?$")
 _COLOUR = re.compile(r"\x1b\[[0-9;]*m")
 # Newer builds mark errors only by printing them red, with no "ERROR:" prefix.
@@ -194,6 +197,7 @@ class FirmwareParser:
         self._step = None
         self._overall = 0.0
         self._step_percent = None
+        self._seen = set()
         self.last_line = ""
 
     def feed(self, chunk: str) -> list:
@@ -221,11 +225,15 @@ class FirmwareParser:
                 if step_percent != self._step_percent:
                     self._step_percent = step_percent
                     events.append(StepPercent(step_percent))
-                overall = sum(weight for _, weight in _STEPS[:index]) + _STEPS[index][1] * min(fraction, 1.0)
+                self._seen.add(index)
+                overall = (sum(_STEPS[i][1] for i in self._seen if i != index)
+                           + _STEPS[index][1] * min(fraction, 1.0))
                 if overall > self._overall:
                     self._overall = overall
                     events.append(OverallPercent(overall))
             return events
+        if _IMAGE_PROGRESS.match(line):
+            return []
         error = red or line.startswith("ERROR: ")
         events = [LogLine(line, error)]
         if line == "DONE" or line == "Status: Restore Finished":

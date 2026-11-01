@@ -38,8 +38,19 @@ def test_step_progress_becomes_monotonic_overall_percent():
     events = feed("progress: 0 0.500000\n", "progress: 2 0.500000\n", "progress: 1 0.900000\n")
     percents = [e.value for e in events if isinstance(e, OverallPercent)]
     assert percents == sorted(percents)
-    assert percents[0] == pytest.approx(2.5)
-    assert percents[1] == pytest.approx(15 + 22.5)
+    assert percents == pytest.approx([2.5, 5 + 12.5, 5 + 25 + 9])
+
+
+def test_overall_counts_only_steps_already_seen():
+    # Modern updates send the system images (step 7) right after preparing, not last.
+    events = feed("progress: 0 1.000000\n", "progress: 1 1.000000\n", "progress: 7 0.550000\n")
+    assert [e.value for e in events if isinstance(e, OverallPercent)][-1] == pytest.approx(15 + 20 * 0.55)
+    assert StepChanged(7, "Sending system images") in events
+
+
+def test_labelled_progress_lines_are_not_logged():
+    events = feed("Cryptex1,SystemOS:   0.4\n", "Device Product Version: 27.0\n")
+    assert [e.text for e in events if isinstance(e, LogLine)] == ["Device Product Version: 27.0"]
 
 
 def test_step_names():

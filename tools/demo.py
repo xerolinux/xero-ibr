@@ -441,14 +441,20 @@ def fake_firmware_cmd(udid, erase, ipsw, cache, ecid=None):
         1: ["Getting ApNonce in normal mode... 32 bytes", "Sending TSS request to gs.apple.com... OK",
             "Received SHSH blobs", "Entering recovery mode...", "Sending iBEC (1192 bytes)... DONE",
             "Waiting for device to reconnect in Restore mode... OK", "Sending RestoreRamDisk... DONE"],
+        7: ["Sending Cryptex1,SystemOS now (6.21 GB)..."],
         2: ["About to send RootFS...", "Sending RootFS (5.82 GB)..."],
         3: ["Verifying restore...", "Checking filesystems (15)..."],
-        4: ["Updating SE Firmware", "Updating Baseband", "Flashing firmware components..."],
+        4: ["Updating SE Firmware", "Flashing firmware components..."],
+        5: ["Updating Baseband"],
+        6: ["Finishing restore..."],
     }
     lines = []
-    for step, pause in ((0, 0.15), (1, 0.15), (2, 0.08), (3, 0.08), (4, 0.08)):
+    for step, pause in ((0, 0.15), (1, 0.15), (7, 0.08), (2, 0.08), (3, 0.08), (4, 0.08), (5, 0.05), (6, 0.05)):
         lines += [(f"{text}\n", 0.12) for text in output[step]]
-        lines += [(f"progress: {step} {n / 20:.6f}\n", pause) for n in range(1, 21)]
+        for n in range(1, 21):
+            if step == 7:
+                lines.append((f"Cryptex1,SystemOS: {n / 20:5.1f}\n", 0))
+            lines.append((f"progress: {step} {n / 20:.6f}\n", pause))
     lines.append(("Status: Restore Finished\nDONE\n", 0))
     return _script(lines)
 
