@@ -8,12 +8,13 @@ from ..core.firmware import (FirmwareParser, FirmwareTarget, LogLine, OverallPer
                              StepPercent, ipsw_matches, remaining_seconds)
 from ..core.fmt import format_eta, format_size
 from ..core.ipsw_library import best_for, read_ipsw
+from ..core.recovery import rule_installed
 from ..core.settings import xdg_dir
 from ..core.support import MIN_OS_LABEL
 from ..services.firmware import check_tool
 from ..services.operation import Operation
 from .device_art import DeviceArt
-from .dialog import Dialog, confirm
+from .dialog import Dialog, alert, confirm
 from .ipsw_panels import IpswDownloader, IpswLibrary
 from . import sounds
 from .widgets import button, clear, hbox, label, set_classes, vbox
@@ -126,8 +127,7 @@ class FirmwareDialog(Dialog):
         footer.set_margin_start(20)
         footer.set_margin_end(20)
         footer.set_margin_bottom(20)
-        note = label("Apple only installs versions it still signs. If the device restarts into recovery mode and "
-                     "is not found, add libirecovery's udev rules.", "caption", wrap=True)
+        note = label("Apple only installs versions it still signs.", "caption", wrap=True)
         note.set_hexpand(True)
         footer.append(note)
         self._start = button("Update", None, "primary", "big")
@@ -347,7 +347,23 @@ class FirmwareDialog(Dialog):
         body = (f"All data is removed and {Path(self._ipsw).name} is installed." if erase
                 else f"{Path(self._ipsw).name} is installed and your data is kept.")
         confirm(self, heading, body, "Erase and Restore" if erase else "Update",
-                lambda ok: ok and self._run(erase), destructive=erase)
+                lambda ok: ok and self._allow_recovery_then_run(erase), destructive=erase)
+
+    def _allow_recovery_then_run(self, erase: bool):
+        # The device restarts into recovery mode mid-update; without USB access to it idevicerestore waits 60 s
+        # and gives up, leaving the device on the recovery screen.
+        if rule_installed():
+            self._run(erase)
+            return
+
+        def report(ok: bool, text: str):
+            if ok:
+                self._run(erase)
+            else:
+                alert(self, "USB access needed", "The device restarts into recovery mode during the update, and iBR "
+                      f"needs USB access to reach it there. {text}", kind="warning")
+
+        self._window.install_usb_rule(report, "")
 
     def _run(self, erase: bool):
         cache = xdg_dir("XDG_CACHE_HOME", ".cache") / "ibr" / "firmware"
@@ -382,7 +398,7 @@ class FirmwareDialog(Dialog):
 
     def _on_event(self, operation, event):
         if isinstance(event, LogLine):
-            self._log_line(event.text, "error" if event.text.startswith("ERROR") else None)
+            self._log_line(event.text, "error" if event.error else None)
         elif isinstance(event, StepChanged):
             self._step_name = event.name
             self._step.set_label(event.name)

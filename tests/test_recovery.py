@@ -1,8 +1,9 @@
 import pytest
 
 from ibr.core.recovery import (
-    UDEV_RULE,
-    UDEV_RULE_PATH,
+    ACCESS_RULE,
+    POWER_RULE,
+    RULES,
     install_script,
     rule_installed,
     UsbRecovery,
@@ -75,12 +76,18 @@ def test_usbmuxd_install_hint(os_release, expected):
     assert usbmuxd_install_hint(os_release) == expected
 
 
-def test_udev_rule_only_matches_recovery_ids():
-    assert 'ATTR{idVendor}=="05ac"' in UDEV_RULE
+def test_access_rule_only_matches_recovery_ids():
+    assert 'ATTR{idVendor}=="05ac"' in ACCESS_RULE
     for pid in ("1227", "1281", "1881"):
-        assert pid in UDEV_RULE
-    assert "12a8" not in UDEV_RULE
-    assert 'TAG+="uaccess"' in UDEV_RULE
+        assert pid in ACCESS_RULE
+    assert "12a8" not in ACCESS_RULE
+    assert 'TAG+="uaccess"' in ACCESS_RULE
+
+
+def test_access_rule_runs_before_systemd_applies_uaccess():
+    # 73-seat-late.rules grants access only for tags set before it runs.
+    names = {rule: name for name, rule in RULES.items()}
+    assert names[ACCESS_RULE] < "73"
 
 
 def test_clean_transfers(tmp_path):
@@ -96,29 +103,34 @@ def test_clean_transfers_missing_folder(tmp_path):
     clean_transfers(tmp_path / "nope")
 
 
-def test_udev_rule_keeps_apple_devices_out_of_usb_autosuspend():
-    power = [line for line in UDEV_RULE.splitlines() if "power/control" in line]
-    assert len(power) == 1
-    assert 'ATTR{idVendor}=="05ac"' in power[0] and 'ACTION=="add"' in power[0]
-    assert "echo on > /sys%p/power/control" in power[0]
+def test_power_rule_keeps_apple_devices_out_of_usb_autosuspend():
+    assert 'ATTR{idVendor}=="05ac"' in POWER_RULE and 'ACTION=="add"' in POWER_RULE
+    assert "echo on > /sys%p/power/control" in POWER_RULE
+    assert "uaccess" not in POWER_RULE
 
 
-def test_udev_rule_runs_after_power_tools():
-    assert UDEV_RULE_PATH == "/etc/udev/rules.d/99-ibr.rules"
+def test_power_rule_runs_after_power_tools():
+    assert RULES["99-ibr.rules"] == POWER_RULE
 
 
-def test_packaged_rule_matches():
+def test_packaged_rules_match():
     from pathlib import Path
-    assert (Path(__file__).parent.parent / "data" / "99-ibr.rules").read_text() == UDEV_RULE
+    data = Path(__file__).parent.parent / "data"
+    for name, rule in RULES.items():
+        assert (data / name).read_text() == rule
 
 
-def test_rule_installed(tmp_path):
-    etc, lib = tmp_path / "etc.rules", tmp_path / "lib.rules"
+def test_rule_installed_needs_both_files(tmp_path):
+    etc, lib = tmp_path / "etc", tmp_path / "lib"
+    etc.mkdir()
+    lib.mkdir()
     assert not rule_installed([etc, lib])
-    lib.write_text("old rule\n")
+    (etc / "99-ibr.rules").write_text(POWER_RULE)
     assert not rule_installed([etc, lib])
-    etc.write_text(UDEV_RULE)
+    (lib / "70-ibr.rules").write_text(ACCESS_RULE)
     assert rule_installed([etc, lib])
+    (lib / "70-ibr.rules").write_text("old rule\n")
+    assert not rule_installed([etc, lib])
 
 
 def test_install_script_writes_rule_and_drops_old_file(tmp_path):
@@ -126,10 +138,12 @@ def test_install_script_writes_rule_and_drops_old_file(tmp_path):
     etc = tmp_path / "rules.d"
     etc.mkdir()
     (etc / "70-ibr-recovery.rules").write_text("old\n")
+    (etc / "99-ibr.rules").write_text("old combined rule\n")
     script = install_script().replace("/etc/udev/rules.d", str(etc))
     script = script.split(" && udevadm")[0]
     subprocess.run(["sh", "-c", script], check=True)
-    assert (etc / "99-ibr.rules").read_text() == UDEV_RULE
+    for name, rule in RULES.items():
+        assert (etc / name).read_text() == rule
     assert not (etc / "70-ibr-recovery.rules").exists()
     assert install_script().endswith("udevadm control --reload-rules && udevadm trigger --subsystem-match=usb "
                                      "--attr-match=idVendor=05ac")

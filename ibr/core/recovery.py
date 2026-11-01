@@ -16,20 +16,23 @@ RECOVERY_PIDS = {
     "1881": "DFU",
     "f014": "DFU",
 }
+ACCESS_RULE = (f'SUBSYSTEM=="usb", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
+               f'ATTR{{idProduct}}=="{"|".join(RECOVERY_PIDS)}", TAG+="uaccess"\n')
 # Power tools such as TLP switch USB devices to autosuspend from their own RUN rule, which can drop a long
 # backup. RUN (not ATTR) from a late file is applied after theirs.
-UDEV_RULE = (f'SUBSYSTEM=="usb", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
-             f'ATTR{{idProduct}}=="{"|".join(RECOVERY_PIDS)}", TAG+="uaccess"\n'
-             f'ACTION=="add", SUBSYSTEM=="usb", ENV{{DEVTYPE}}=="usb_device", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
-             f'TEST=="power/control", RUN+="/bin/sh -c \'echo on > /sys%p/power/control\'"\n')
-UDEV_RULE_PATH = "/etc/udev/rules.d/99-ibr.rules"
-OLD_UDEV_RULE_PATH = "/etc/udev/rules.d/70-ibr-recovery.rules"
-INSTALLED_RULE_PATHS = (Path(UDEV_RULE_PATH), Path("/usr/lib/udev/rules.d/99-ibr.rules"))
+POWER_RULE = (f'ACTION=="add", SUBSYSTEM=="usb", ENV{{DEVTYPE}}=="usb_device", ATTR{{idVendor}}=="{APPLE_VENDOR}", '
+              f'TEST=="power/control", RUN+="/bin/sh -c \'echo on > /sys%p/power/control\'"\n')
+# systemd's 73-seat-late.rules only grants access for uaccess tags set before it, so the two need separate files.
+RULES = {"70-ibr.rules": ACCESS_RULE, "99-ibr.rules": POWER_RULE}
+RULES_DIR = "/etc/udev/rules.d"
+OLD_UDEV_RULE_PATH = f"{RULES_DIR}/70-ibr-recovery.rules"
+INSTALLED_RULE_DIRS = (Path(RULES_DIR), Path("/usr/lib/udev/rules.d"))
 
 
 def install_script() -> str:
-    """Root shell script that installs the rule, replaces the old one and applies it to connected devices."""
-    return (f"rm -f {OLD_UDEV_RULE_PATH} && printf '%s' {shlex.quote(UDEV_RULE)} > {UDEV_RULE_PATH} && "
+    """Root shell script that installs the rules, replaces the old one and applies them to connected devices."""
+    writes = " && ".join(f"printf '%s' {shlex.quote(rule)} > {RULES_DIR}/{name}" for name, rule in RULES.items())
+    return (f"rm -f {OLD_UDEV_RULE_PATH} && {writes} && "
             "udevadm control --reload-rules && udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac")
 
 
@@ -37,14 +40,15 @@ def manual_command() -> str:
     return f"sudo sh -c {shlex.quote(install_script())}"
 
 
-def rule_installed(paths=INSTALLED_RULE_PATHS) -> bool:
-    for path in paths:
-        try:
-            if Path(path).read_text() == UDEV_RULE:
-                return True
-        except OSError:
-            continue
-    return False
+def _read_rule(path: Path) -> str | None:
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
+def rule_installed(dirs=INSTALLED_RULE_DIRS) -> bool:
+    return all(any(_read_rule(Path(folder) / name) == rule for folder in dirs) for name, rule in RULES.items())
 
 
 @dataclass(frozen=True)

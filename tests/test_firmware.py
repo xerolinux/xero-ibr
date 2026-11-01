@@ -197,3 +197,24 @@ def test_download_status():
     from ibr.core.firmware import download_status
     assert download_status(1_200_000_000, 6_800_000_000, 24_000_000) == "1.2 GB of 6.8 GB · 24 MB/s · About 3 min left"
     assert download_status(0, None, 0) == "Starting…"
+
+
+# Real output from idevicerestore 1.0.0-278 on a pty: colour codes around every line, errors only marked red.
+COLOURED = ("\x1b[mprogress: 0 0.200000\n"
+            "Identified device as d16ap, iPhone14,4\n"
+            "\x1b[m\x1b[0;31m\x1b[1mFailed to enter recovery mode\n"
+            "\x1b[m\x1b[0;33m\x1b[1mDevice requires stashbag.\n\x1b[m")
+
+
+def test_colour_codes_are_stripped():
+    events = feed(COLOURED)
+    assert StepPercent(20.0) in events
+    assert [e.text for e in events if isinstance(e, LogLine)] == [
+        "Identified device as d16ap, iPhone14,4", "Failed to enter recovery mode", "Device requires stashbag."]
+
+
+def test_red_lines_are_errors():
+    events = feed(COLOURED)
+    assert Error("Failed to enter recovery mode") in events
+    assert [e.text for e in events if isinstance(e, LogLine) and e.error] == ["Failed to enter recovery mode"]
+    assert LogLine("ERROR: Unable to send TSS request", error=True) in feed("ERROR: Unable to send TSS request\n")

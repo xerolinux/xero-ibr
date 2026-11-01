@@ -738,14 +738,14 @@ class MainWindow(Gtk.ApplicationWindow):
                     device.queried = False
                 GLib.timeout_add_seconds(2, lambda: self.monitor.scan(refresh=True, quiet=True) and False)
 
-        self._install_usb_rule(report, "USB access allowed. Checking the device again…")
+        self.install_usb_rule(report, "USB access allowed. Checking the device again…")
 
     def _prevent_usb_drops(self):
         def report(ok: bool, text: str):
             self._usb_rule_box.set_visible(not rule_installed())
             alert(self, "USB power saving" if ok else "Rule not installed", text, kind="info" if ok else "warning")
 
-        self._install_usb_rule(report, "Apple devices are now kept out of USB power saving. Unplug the device and "
+        self.install_usb_rule(report, "Apple devices are now kept out of USB power saving. Unplug the device and "
                                        "connect it again for this to take effect.")
 
     def _start_usbmuxd(self, binary: str):
@@ -762,7 +762,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         run(["pkexec", *start_command(has_systemd(), binary)], done)
 
-    def _install_usb_rule(self, report, success_text: str):
+    def install_usb_rule(self, report, success_text: str):
         if not shutil.which("pkexec"):
             report(False, f"pkexec is not available. Run this in a terminal instead:\n{manual_command()}")
             return

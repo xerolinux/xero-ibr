@@ -26,6 +26,7 @@ class StepPercent:
 @dataclass(frozen=True)
 class LogLine:
     text: str
+    error: bool = False
 
 
 def remaining_seconds(elapsed: float, percent: float) -> float | None:
@@ -182,6 +183,9 @@ _STEPS = (
 )
 _PROGRESS = re.compile(r"^progress: (\d+) ([\d.]+)$")
 _FAILED_STATUS = re.compile(r"^Status: (?!Restore Finished)(.+?)\.?$")
+_COLOUR = re.compile(r"\x1b\[[0-9;]*m")
+# Newer builds mark errors only by printing them red, with no "ERROR:" prefix.
+_RED = re.compile(r"^(?:\x1b\[[0-9;]*m)*\x1b\[0;31m")
 
 
 class FirmwareParser:
@@ -197,14 +201,14 @@ class FirmwareParser:
         *lines, self._buffer = re.split(r"[\r\n]", self._buffer)
         events = []
         for raw in lines:
-            line = raw.strip()
+            line = _COLOUR.sub("", raw).strip()
             if not line:
                 continue
             self.last_line = line
-            events += self._line(line)
+            events += self._line(line, bool(_RED.match(raw.lstrip())))
         return events
 
-    def _line(self, line: str) -> list:
+    def _line(self, line: str, red: bool) -> list:
         match = _PROGRESS.match(line)
         if match:
             index, fraction = int(match.group(1)), float(match.group(2))
@@ -222,14 +226,15 @@ class FirmwareParser:
                     self._overall = overall
                     events.append(OverallPercent(overall))
             return events
-        events = [LogLine(line)]
+        error = red or line.startswith("ERROR: ")
+        events = [LogLine(line, error)]
         if line == "DONE" or line == "Status: Restore Finished":
             return events + [Finished(True, "Restore Finished" if line.startswith("Status") else "DONE")]
         failed = _FAILED_STATUS.match(line)
         if failed:
             return events + [Finished(False, failed.group(1))]
-        if line.startswith("ERROR: "):
-            return events + [Error(line[len("ERROR: "):])]
+        if error:
+            return events + [Error(line.removeprefix("ERROR: "))]
         return events
 
 
